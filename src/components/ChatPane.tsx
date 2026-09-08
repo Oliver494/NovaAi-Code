@@ -1,17 +1,17 @@
 import {
-  AlertCircle, Bot, Check, ChevronDown, Clipboard, Code2, Edit3, FileCode2, FolderPlus, ShieldCheck,
-  Image, LoaderCircle, Plus, Send, Settings2, Square,
+  AlertCircle, Bot, Check, ChevronDown, Clipboard, Code2, Edit3, ExternalLink, FileCode2, FolderPlus, Globe2, ShieldCheck,
+  Image, LoaderCircle, Plus, Send, Settings2, Sparkles, Square,
   Upload, X,
 } from "lucide-react";
 import { type ClipboardEvent as ReactClipboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ai, asDiagnostic, providerMeta } from "../services/ai";
+import { activeProviderConfig, ai, asDiagnostic, providerDisplayName, providerMeta } from "../services/ai";
 import { agent } from "../services/agent";
 import { requestsProjectAction } from "../services/actionIntent";
 import { createConversation, loadConversations, saveConversations } from "../services/conversations";
 import { archiveConversation, conversationMarkdown, duplicateConversation, isConversationBusy, pinConversation, renameConversation, sortConversations } from "../services/conversationActions";
 import { chooseChatFiles, chooseExternalFolder, errorMessage, projectFiles } from "../services/fileSystem";
 import { usePreferences } from "../services/preferences";
-import type { AgentCommandEvent, AgentTask, AiProjectAction, AiSettings, AppliedChange, AssistantWorkspace, ChatMessage, ChatUpload, ContextReference, Conversation, DetectedCommand, Diagnostic, ExternalFolderGrant, OpenFile, ProjectInfo } from "../types";
+import type { AgentCommandEvent, AgentTask, AiProjectAction, AiSettings, AppliedChange, ChatMessage, ChatUpload, ContextReference, Conversation, ConversationMode, DetectedCommand, Diagnostic, ExternalFolderGrant, OpenFile, ProjectInfo, WebSearchSource } from "../types";
 import { AgentTaskCard } from "./AgentTaskCard";
 import { AssistantMessageContent } from "./AssistantMessageContent";
 import { DiagnosticCard } from "./DiagnosticCard";
@@ -22,7 +22,7 @@ import { ConversationDialog } from "./ConversationDialog";
 
 type PreviewAction = AiProjectAction & { before?: string; isNew?: boolean };
 type Props = {
-  mode: AssistantWorkspace;
+  mode: ConversationMode;
   activeWorkspace: boolean;
   project: ProjectInfo | null;
   projects: ProjectInfo[];
@@ -34,6 +34,7 @@ type Props = {
   onConfigure: () => void;
   onSettingsChange: (settings: AiSettings) => void;
   onFilesChanged: (paths: string[]) => Promise<void>;
+  onNotify: (tone: "success" | "error" | "info", message: string) => void;
 };
 
 function visibleAnswer(content: string) {
@@ -87,6 +88,17 @@ function isSimpleGreeting(prompt: string) {
   return /^(hola|hello|hi|hey|buenas|buenos días|buenas tardes|buenas noches|qué tal|que tal)( [\p{L}\p{N}_-]+)?$/u.test(normalized);
 }
 
+function needsWebSearch(prompt: string) {
+  const normalized = prompt.toLocaleLowerCase();
+  return /\b(busca|búscame|buscame|investiga|consulta|internet|en la web|en web|online|noticias|news|últim[oa]s?|actual(?:izado|izada|mente)?|hoy|precio|cotizaci[oó]n|documentaci[oó]n|docs?|release|versi[oó]n|latest|current|today|search|look up|tiempo|clima|temperatura|weather|forecast|pron[oó]stico|llueve|lluvia|viento|humedad)\b/u.test(normalized);
+}
+
+function webContext(sources: WebSearchSource[], attempted: boolean) {
+  if (!attempted) return null;
+  if (!sources.length) return "BÚSQUEDA WEB: Nova intentó buscar fuentes públicas actuales para la pregunta del usuario, pero no encontró resultados utilizables. No afirmes que navegaste ni inventes información actual; explica esta limitación si es importante para responder.";
+  return `CAPACIDAD WEB ACTIVA: Nova ya consultó fuentes públicas reales para esta pregunta y tienes los resultados a continuación. No digas que no tienes acceso a Internet, que no puedes buscar ni que el usuario deba buscar por su cuenta. Responde con esta información; si no basta para dar un dato exacto, explica con precisión qué falta. No afirmes que consultaste páginas que no aparecen aquí. Si das un dato obtenido de una fuente, cita su nombre y URL.\n\nFUENTES WEB ACTUALES:\n${sources.map((source, index) => `[${index + 1}] ${source.title}\nURL: ${source.url}\nResumen: ${source.snippet || "Sin resumen disponible."}`).join("\n\n")}`;
+}
+
 function requestHistory(messages: ChatMessage[]) {
   // A conversation is its own memory. Do not silently discard earlier turns;
   // providers report a clear context-limit diagnostic when needed.
@@ -110,7 +122,7 @@ const SLASH_COMMANDS = [
   { command: "/help", label: ["Ver comandos", "View commands"], description: ["Muestra la ayuda rápida", "Show quick help"] },
 ];
 
-export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, settings, sidebarOpen, onAddProject, onSelectProject, onConfigure, onSettingsChange, onFilesChanged }: Props) {
+export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, settings, sidebarOpen, onAddProject, onSelectProject, onConfigure, onSettingsChange, onFilesChanged, onNotify }: Props) {
   const { t } = usePreferences();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState("");
@@ -137,16 +149,18 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
   const followMessages = useRef(true);
   const agentRequestId = useRef<string | null>(null);
   const requestId = useRef<string | null>(null);
+  const mediaRequestId = useRef<string | null>(null);
   const userStoppedRequests = useRef(new Set<string>());
   const lastPrompt = useRef("");
   const assistantBuffer = useRef("");
   const skipPersistence = useRef(false);
   const previewOwner = useRef<{ conversationId: string; messageId: string } | null>(null);
   const modePickerRef = useRef<HTMLDivElement | null>(null);
-  const active = settings?.providers.find((item) => item.provider === settings.activeProvider) ?? null;
+  const active = activeProviderConfig(settings);
   const ready = !!active?.model && (!providerMeta[active.provider].requiresKey || active.apiKeyConfigured);
   const conversation = conversations.find((item) => item.id === activeId) ?? conversations[0];
   const generatingHere = generating && generatingConversationId === conversation?.id;
+  const generatingElsewhere = generating && !!conversation && generatingConversationId !== conversation.id;
   const codeMode = mode === "code";
   const modeSwitchDisabled = true;
   const availableCommands = codeMode ? SLASH_COMMANDS : SLASH_COMMANDS.filter((item) => !["/test", "/build", "/check"].includes(item.command));
@@ -341,24 +355,40 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
     const target = conversations.find((item) => item.id === id);
     if (!target || target.projectPath?.toLocaleLowerCase() !== (project?.path ?? null)?.toLocaleLowerCase()) return;
     if ((action === "delete" || action === "clear") && isConversationBusy(target, generatingConversationId)) return;
-    if (action === "pin") { setConversations((items) => pinConversation(items, id, !target.pinned)); return; }
-    if (action === "rename" && value) { setConversations((items) => renameConversation(items, id, value)); return; }
+    if (action === "pin") {
+      setConversations((items) => pinConversation(items, id, !target.pinned));
+      onNotify("success", target.pinned ? t("Chat desfijado", "Chat unpinned") : t("Chat fijado", "Chat pinned"));
+      return;
+    }
+    if (action === "rename" && value) {
+      setConversations((items) => renameConversation(items, id, value));
+      onNotify("success", t("Chat renombrado", "Chat renamed"));
+      return;
+    }
     if (action === "archive") {
       setConversations((items) => {
         const archived = archiveConversation(items, id, true);
         return id === activeId ? selectAvailableConversation(archived, id) : archived;
       });
+      onNotify("success", t("Chat archivado", "Chat archived"));
       return;
     }
-    if (action === "restore") { setConversations((items) => archiveConversation(items, id, false)); return; }
+    if (action === "restore") {
+      setConversations((items) => archiveConversation(items, id, false));
+      onNotify("success", t("Chat restaurado", "Chat restored"));
+      return;
+    }
     if (action === "duplicate") {
       const copy = duplicateConversation(target);
-      setConversations((items) => [copy, ...items]); setActiveId(copy.id); return;
+      setConversations((items) => [copy, ...items]); setActiveId(copy.id);
+      onNotify("success", t("Chat duplicado", "Chat duplicated"));
+      return;
     }
-    if (action === "markdown") { void navigator.clipboard.writeText(conversationMarkdown(target)); return; }
-    if (action === "copy-id") { void navigator.clipboard.writeText(target.id); return; }
+    if (action === "markdown") { void copyConversationValue(conversationMarkdown(target), t("Markdown copiado", "Markdown copied")); return; }
+    if (action === "copy-id") { void copyConversationValue(target.id, t("Identificador copiado", "Identifier copied")); return; }
     if (action === "clear") {
       setConversations((items) => items.map((item) => item.id === id ? { ...item, messages: [], compactedContext: undefined, compactedAt: undefined, agentTask: undefined, lastError: false, updatedAt: Date.now() } : item));
+      onNotify("success", t("Mensajes eliminados", "Messages cleared"));
       return;
     }
     if (action === "delete") {
@@ -366,20 +396,33 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
         const remaining = items.filter((item) => item.id !== id);
         return id === activeId ? selectAvailableConversation(remaining, id) : remaining;
       });
+      onNotify("success", t("Chat eliminado", "Chat deleted"));
+    }
+  }
+
+  async function copyConversationValue(value: string, successMessage: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      onNotify("success", successMessage);
+    } catch (cause) {
+      onNotify("error", `${t("No se pudo copiar", "Could not copy")}: ${errorMessage(cause)}`);
     }
   }
 
   function appendOperationResult(conversationId: string, messageId: string, actions: PreviewAction[]) {
     if (!actions.length) return;
     const descriptions = actions.map((action) => {
-      if (action.type === "write") return `${action.isNew ? "He creado" : "He actualizado"} ${action.path}`;
-      if (action.type === "mkdir") return `He creado la carpeta ${action.path}`;
-      if (action.type === "rename") return `He renombrado ${action.path} como ${action.newPath}`;
-      return `He eliminado ${action.path}`;
+      if (action.type === "write") return `${action.isNew ? t("Creé", "Created") : t("Actualicé", "Updated")} \`${action.path}\``;
+      if (action.type === "mkdir") return `${t("Creé la carpeta", "Created the folder")} \`${action.path}\``;
+      if (action.type === "rename") return `${t("Renombré", "Renamed")} \`${action.path}\` ${t("como", "to")} \`${action.newPath}\``;
+      return `${t("Eliminé", "Deleted")} \`${action.path}\``;
     });
+    const reviewHint = actions.some((action) => action.type === "write")
+      ? t("Puedes abrir el archivo desde el explorador o revisar el diff final aquí.", "You can open the file from the explorer or review the final diff here.")
+      : t("Puedes revisar el resultado en el explorador del proyecto.", "You can review the result in the project explorer.");
     const result = descriptions.length === 1
-      ? `Listo, ${descriptions[0].charAt(0).toLocaleLowerCase()}${descriptions[0].slice(1)}.`
-      : `Listo, he aplicado ${descriptions.length} cambios:\n${descriptions.map((text) => `• ${text}`).join("\n")}`;
+      ? `${t("Listo.", "Done.")} ${descriptions[0]}. ${reviewHint}`
+      : `${t("Listo, completé la tarea y apliqué", "Done. I completed the task and applied")} ${descriptions.length} ${t("cambios", "changes")}:\n${descriptions.map((text) => `• ${text}`).join("\n")}\n\n${reviewHint}`;
     const appliedChanges: AppliedChange[] = actions.map((action) => {
       const before = action.before ?? "";
       const after = action.type === "write" ? action.content ?? "" : "";
@@ -452,10 +495,10 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
   async function send(forcedPrompt?: string) {
     const prompt = forcedPrompt ?? input.trim();
     if ((!prompt && uploads.length === 0 && projectAttachments.length === 0) || !conversation) return;
-    if (generating) {
-      if (generatingConversationId !== conversation.id) addLocalMessage("Nova está terminando una respuesta en otra conversación. Este chat se mantiene separado; espera a que termine para enviar aquí.");
-      return;
-    }
+    // A request running in another conversation must never write system-like
+    // messages into this chat. Keep the draft untouched until sending is
+    // available again.
+    if (generating) return;
     if (!forcedPrompt && runCommand(prompt)) return;
     if (!active || !ready) return;
     // La solicitud conserva una copia del proveedor y del proyecto al enviarse.
@@ -471,7 +514,12 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
     const uploadedMeta = uploads.map(({ data: _data, ...item }) => item);
     const requestHasImages = requestUploads.some((item) => item.kind === "image");
     const useWorkspace = requestCodeMode && !!project && !isSimpleGreeting(prompt);
-    const userMessage = message("user", prompt, uploadedMeta, []);
+    const webSearchAttempted = needsWebSearch(prompt);
+    let webSources: WebSearchSource[] = [];
+    if (webSearchAttempted) {
+      try { webSources = (await ai.searchWeb(prompt)).sources; } catch { webSources = []; }
+    }
+    const userMessage = { ...message("user", prompt, uploadedMeta, []), webSearchAttempted, webSources };
     const assistantMessage = message("assistant", "");
     const conversationId = conversation.id;
     const actionExpected = requestCodeMode && useWorkspace && requestsProjectAction(prompt, base);
@@ -552,8 +600,10 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
       }, receive);
     };
     try {
+      const currentWebContext = webContext(webSources, webSearchAttempted);
       const requestHistory = [
         ...(conversation.compactedContext ? [{ role: "system" as const, content: `MEMORIA COMPACTADA DE ESTA CONVERSACIÓN:\n${conversation.compactedContext}` }] : []),
+        ...(currentWebContext ? [{ role: "system" as const, content: currentWebContext }] : []),
         ...history.map(({ role, content }) => ({ role, content })),
       ];
       await runRequest(requestHistory);
@@ -594,9 +644,39 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
     finally { window.clearInterval(timer); if (requestId.current) userStoppedRequests.current.delete(requestId.current); setGenerating(false); setGeneratingConversationId(null); requestId.current = null; setUploads([]); setProjectAttachments([]); }
   }
 
+  async function createImageInChat() {
+    const prompt = input.trim();
+    const nvidia = settings?.providers.find((item) => item.provider === "nvidia");
+    if (!conversation || !prompt) {
+      setDiagnostic({ code: "EMPTY_PROMPT", title: "Describe la imagen", explanation: "Escribe lo que quieres crear antes de pulsar el botón de imagen.", cause: "Falta la descripción para el modelo de imagen.", action: "Describe una imagen y vuelve a intentarlo.", technicalDetails: null, retryable: false });
+      return;
+    }
+    if (!nvidia?.apiKeyConfigured) {
+      setDiagnostic({ code: "INVALID_API_KEY", title: "Configura NVIDIA API", explanation: "Crear imágenes en NovaAI utiliza tu clave de NVIDIA API.", cause: "NVIDIA API no tiene una clave guardada.", action: "Abre Proveedores y configura NVIDIA API.", technicalDetails: null, retryable: false });
+      return;
+    }
+    if (generating) return;
+    const userMessage = message("user", prompt);
+    const assistantMessage = message("assistant", "Creando imagen…");
+    const conversationId = conversation.id;
+    updateConversationById(conversationId, (item) => ({ ...item, messages: [...item.messages, userMessage, assistantMessage], lastError: false, updatedAt: Date.now() }));
+    const requestId = crypto.randomUUID();
+    mediaRequestId.current = requestId;
+    setInput(""); setDiagnostic(null); setGenerating(true); setGeneratingConversationId(conversationId); setStatus("Creando imagen con NVIDIA…");
+    try {
+      const generated = await ai.generateNvidiaMedia({ requestId, config: nvidia, mode: "image", model: "black-forest-labs/flux.1-schnell", prompt });
+      updateConversationById(conversationId, (item) => ({ ...item, messages: item.messages.map((entry) => entry.id === assistantMessage.id ? { ...entry, content: "Imagen creada.", generatedMedia: generated } : entry), updatedAt: Date.now() }));
+      setStatus("Imagen creada");
+    } catch (cause) {
+      setDiagnostic(asDiagnostic(cause));
+      updateConversationById(conversationId, (item) => ({ ...item, messages: item.messages.map((entry) => entry.id === assistantMessage.id ? { ...entry, content: "No se pudo crear la imagen." } : entry), lastError: true, updatedAt: Date.now() }));
+    } finally { if (mediaRequestId.current === requestId) mediaRequestId.current = null; setGenerating(false); setGeneratingConversationId(null); }
+  }
+
   async function stop() {
     if (!generatingHere) return;
     if (agentRequestId.current) { await stopAgentCommand(); return; }
+    if (mediaRequestId.current) { await ai.cancel(mediaRequestId.current); return; }
     const id = requestId.current;
     if (!id) return;
     userStoppedRequests.current.add(id);
@@ -724,7 +804,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
               <footer><ShieldCheck size={13} /><span>{codeMode ? t("Los cambios respetan tus permisos y muestran un diff.", "Changes follow your permissions and show a diff.") : t("NovaAI no recibe acceso automático al proyecto.", "NovaAI does not receive automatic project access.")}</span></footer>
             </div>}
           </div>}
-          <div className="chat-provider"><span className={`provider-dot ${ready ? "is-ready" : ""}`} /><div><strong>{active ? providerMeta[active.provider].name : t("Sin proveedor", "No provider")}</strong><span>{active?.model || t("Configura un modelo", "Configure a model")}</span></div></div>
+          <div className="chat-provider"><span className={`provider-dot ${ready ? "is-ready" : ""}`} /><div><strong>{active ? providerDisplayName(active) : t("Sin proveedor", "No provider")}</strong><span>{active?.model || t("Configura un modelo", "Configure a model")}</span></div></div>
         </div>
         <div className="chat-header__actions">
           {codeMode && project && conversation && <label className={`approval-control approval-control--${conversation.approvalMode}`} title={t("Controla cuándo Nova necesita tu aprobación", "Controls when Nova needs your approval")}><ShieldCheck size={14} /><select value={conversation.approvalMode} onChange={(event) => updateConversation((item) => ({ ...item, approvalMode: event.target.value as Conversation["approvalMode"], updatedAt: Date.now() }))} aria-label={t("Permisos de la conversación", "Conversation permissions")}><option value="ask">{t("Solicitar aprobación", "Ask for approval")}</option><option value="auto">{t("Aprobar por mí", "Approve for me")}</option><option value="full">{t("Acceso completo", "Full access")}</option></select></label>}
@@ -736,8 +816,9 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
         {conversation?.messages.map((item, index) => <article key={item.id} className={`chat-message chat-message--${item.role}`}>
           <span>{item.role === "user" ? t("Tú", "You") : codeMode ? "NovaAI Code" : "NovaAI"}</span>
           <div className="message-body">
-            <div>{item.role === "assistant" ? <AssistantMessageContent content={visibleAnswer(item.content)} /> : item.content}{!(item.role === "assistant" ? visibleAnswer(item.content) : item.content) && generatingHere && index === conversation.messages.length - 1 ? <span className="waiting-text" role="status" aria-live="polite"><LoaderCircle className="spin" size={14} />{status} {(waitMs / 1000).toFixed(1)} s</span> : null}</div>
+            <div>{item.role === "assistant" ? <AssistantMessageContent content={visibleAnswer(item.content)} media={item.generatedMedia} /> : item.content}{!(item.role === "assistant" ? visibleAnswer(item.content) : item.content) && generatingHere && index === conversation.messages.length - 1 ? <span className="waiting-text" role="status" aria-live="polite"><LoaderCircle className="spin" size={14} />{status} {(waitMs / 1000).toFixed(1)} s</span> : null}</div>
             {!!item.uploads?.length && <div className="message-attachments">{item.uploads.map((file) => <span key={file.id}>{file.kind === "image" ? <Image size={12} /> : <FileCode2 size={12} />}{file.name}</span>)}</div>}
+            {item.webSearchAttempted && <details className="message-web-sources"><summary><Globe2 size={12} />{item.webSources?.length ? `${item.webSources.length} fuentes web consultadas` : "Búsqueda web sin fuentes disponibles"}</summary>{item.webSources?.length ? <div>{item.webSources.map((source) => <a key={source.url} href={source.url} target="_blank" rel="noreferrer"><strong>{source.title}</strong>{source.snippet && <small>{source.snippet}</small>}<ExternalLink size={11} /></a>)}</div> : null}</details>}
             {!!item.contextReferences?.length && <details className="message-context"><summary><FileCode2 size={12} />{item.contextReferences.length} {t("archivos usados como contexto", "files used as context")}</summary><div>{item.contextReferences.map((reference) => <button key={reference.path} type="button" title={reference.path}>{reference.path}:{reference.startLine}-{reference.endLine}{reference.truncated ? ` ${t("(truncado)", "(truncated)")}` : ""}</button>)}</div></details>}
             {!!item.appliedChanges?.length && <details className="message-final-diff"><summary><Check size={12} />{t("Ver diff final", "View final diff")} · {item.appliedChanges.length}</summary><div>{item.appliedChanges.map((change, changeIndex) => <article key={`${change.type}-${change.path}-${changeIndex}`}><strong>{change.path}{change.newPath ? ` → ${change.newPath}` : ""}</strong>{change.type === "write" ? <div className="final-diff-columns"><pre>{change.before || t("Archivo nuevo", "New file")}</pre><pre>{change.after}</pre></div> : <span>{change.type === "mkdir" ? t("Carpeta creada", "Folder created") : change.type === "rename" ? t("Elemento renombrado", "Item renamed") : t("Elemento eliminado", "Item deleted")}</span>}{change.truncated && <small>{t("Diff truncado para proteger el historial local", "Diff truncated to protect local history")}</small>}</article>)}</div></details>}
             {(item.role === "user" ? item.content : visibleAnswer(item.content)) && <div className="message-actions"><button onClick={() => navigator.clipboard.writeText(item.role === "assistant" ? visibleAnswer(item.content) : item.content)} title={t("Copiar", "Copy")}><Clipboard size={13} /></button>{item.role === "user" && !generatingHere && <button onClick={() => editQuestion(item)} title={t("Editar pregunta", "Edit question")}><Edit3 size={13} /></button>}</div>}
@@ -753,7 +834,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
         {(projectAttachments.length > 0 || uploads.length > 0) && <div className="attached-files">{projectAttachments.map((path) => <span key={path}><FileCode2 size={12} />{path}<button onClick={() => toggleProjectAttachment(path)}><X size={12} /></button></span>)}{uploads.map((file) => <span key={file.id} title={file.name}>{file.kind === "image" ? <img className="attached-files__image" src={`data:${file.mimeType};base64,${file.data}`} alt={t("Imagen adjunta", "Attached image")} /> : <FileCode2 size={12} />}{file.name}<button onClick={() => setUploads((items) => items.filter((item) => item.id !== file.id))} aria-label={`${t("Quitar", "Remove")} ${file.name}`}><X size={12} /></button></span>)}</div>}
         {attachmentOpen && <div className={`attachment-menu${codeMode && openFiles.length ? "" : " attachment-menu--compact"}`}><button className="attachment-menu__upload" onClick={() => void uploadFiles()}><Upload size={14} />{t("Subir archivo o imagen", "Upload file or image")}</button>{codeMode && project && <div className="external-folder-actions"><button type="button" onClick={() => void grantExternalFolder("read")}><FolderPlus size={14} />{t("Añadir carpeta de lectura", "Add read-only folder")}</button><button type="button" onClick={() => void grantExternalFolder("write")}><FolderPlus size={14} />{t("Añadir carpeta con edición", "Add editable folder")}</button></div>}{codeMode && openFiles.length > 0 && <div className="attachment-menu__files">{openFiles.map((file) => <label key={file.relativePath}><input type="checkbox" checked={projectAttachments.includes(file.relativePath)} onChange={() => toggleProjectAttachment(file.relativePath)} /><FileCode2 size={14} /><span>{file.relativePath}</span><small>{Math.ceil(file.content.length / 4).toLocaleString()} tokens</small></label>)}</div>}</div>}
         {!!commandSuggestions.length && <div className="slash-command-menu" role="listbox" aria-label={t("Comandos del chat", "Chat commands")}>{commandSuggestions.map((item) => <button type="button" key={item.command} onClick={() => { setInput(""); runCommand(item.command); }}><code>{item.command}</code><span><strong>{t(item.label[0], item.label[1])}</strong><small>{t(item.description[0], item.description[1])}</small></span></button>)}</div>}
-        <div className="chat-composer"><textarea value={input} onChange={(event) => setInput(event.target.value)} onPaste={handlePaste} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); } }} placeholder={ready ? (codeMode ? t("Pide un cambio o pregunta sobre el proyecto…", "Ask for a change or about the project…") : t("Pregunta lo que quieras…", "Ask anything…")) : t("Selecciona un modelo para comenzar", "Select a model to begin")} disabled={!ready || generatingHere} rows={2} /><footer><div><button className="composer-button composer-button--attach" disabled={generatingHere} onClick={() => setAttachmentOpen((value) => !value)} aria-expanded={attachmentOpen} title={t("Adjuntar archivo o imagen", "Attach file or image")} aria-label={t("Adjuntar archivo o imagen", "Attach file or image")}><Plus size={16} /></button><span>{estimatedTokens.toLocaleString()} {t("tokens aprox.", "approx. tokens")}</span></div><div className="composer-actions">{codeMode && project && conversation && <label className={`approval-control approval-control--${conversation.approvalMode}`} title={t("Controla cuándo Nova necesita tu aprobación", "Controls when Nova needs your approval")}><ShieldCheck size={14} /><select value={conversation.approvalMode} onChange={(event) => updateConversation((item) => ({ ...item, approvalMode: event.target.value as Conversation["approvalMode"], updatedAt: Date.now() }))} aria-label={t("Permisos de la conversación", "Conversation permissions")}><option value="ask">{t("Solicitar aprobación", "Ask for approval")}</option><option value="auto">{t("Aprobar por mí", "Approve for me")}</option><option value="full">{t("Acceso completo", "Full access")}</option></select></label>}{settings && <ChatModelPicker projectPath={project?.path ?? null} settings={settings} disabled={generatingHere} onChange={onSettingsChange} onConfigure={onConfigure} />}{generatingHere ? <button className="stop-button" onClick={() => void stop()}><Square size={13} fill="currentColor" />{t("Detener", "Stop")}</button> : <button className="send-button" disabled={!ready || (!input.trim() && uploads.length === 0 && projectAttachments.length === 0)} onClick={() => void send()} aria-label={t("Enviar", "Send")}><Send size={16} /></button>}</div></footer></div>
+        <div className="chat-composer"><textarea value={input} onChange={(event) => setInput(event.target.value)} onPaste={handlePaste} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); if (!generatingElsewhere) void send(); } }} placeholder={generatingElsewhere ? t("Puedes seguir escribiendo; hay una respuesta en curso en otro chat…", "You can keep typing; another chat is responding…") : ready ? (codeMode ? t("Pide un cambio o pregunta sobre el proyecto…", "Ask for a change or about the project…") : t("Pregunta lo que quieras…", "Ask anything…")) : t("Selecciona un modelo para comenzar", "Select a model to begin")} disabled={!ready || generatingHere} rows={2} /><footer><div><button className="composer-button composer-button--attach" disabled={generatingHere} onClick={() => setAttachmentOpen((value) => !value)} aria-expanded={attachmentOpen} title={t("Adjuntar archivo o imagen", "Attach file or image")} aria-label={t("Adjuntar archivo o imagen", "Attach file or image")}><Plus size={16} /></button><span>{generatingElsewhere ? t("Respuesta en curso en otro chat", "Response in progress in another chat") : `${estimatedTokens.toLocaleString()} ${t("tokens aprox.", "approx. tokens")}`}</span></div><div className="composer-actions">{!codeMode && <button className="composer-button composer-button--image" type="button" onClick={() => void createImageInChat()} disabled={generatingElsewhere || generatingHere || !input.trim()} title="Crear imagen con NVIDIA"><Sparkles size={15} /></button>}{codeMode && project && conversation && <label className={`approval-control approval-control--${conversation.approvalMode}`} title={t("Controla cuándo Nova necesita tu aprobación", "Controls when Nova needs your approval")}><ShieldCheck size={14} /><select value={conversation.approvalMode} onChange={(event) => updateConversation((item) => ({ ...item, approvalMode: event.target.value as Conversation["approvalMode"], updatedAt: Date.now() }))} aria-label={t("Permisos de la conversación", "Conversation permissions")}><option value="ask">{t("Solicitar aprobación", "Ask for approval")}</option><option value="auto">{t("Aprobar por mí", "Approve for me")}</option><option value="full">{t("Acceso completo", "Full access")}</option></select></label>}{settings && <ChatModelPicker projectPath={project?.path ?? null} settings={settings} disabled={generatingHere} onChange={onSettingsChange} onConfigure={onConfigure} />}{generatingHere ? <button className="stop-button" onClick={() => void stop()}><Square size={13} fill="currentColor" />{t("Detener", "Stop")}</button> : <button className="send-button" title={generatingElsewhere ? t("Espera a que termine la respuesta del otro chat", "Wait for the other chat response to finish") : undefined} disabled={generatingElsewhere || !ready || (!input.trim() && uploads.length === 0 && projectAttachments.length === 0)} onClick={() => void send()} aria-label={t("Enviar", "Send")}><Send size={16} /></button>}</div></footer></div>
       </div>
     </section>
     {!!preview.length && <div className="change-overlay" role="dialog" aria-modal="true" aria-label={t("Revisar operaciones", "Review operations")}><section className="change-review"><header><div><strong>{t("Revisar operaciones", "Review operations")}</strong><span>{t("Una sola aprobación para", "One approval for")} {preview.length}</span></div><button className="icon-button" onClick={() => setPreview([])} aria-label={t("Cerrar", "Close")}><X size={16} /></button></header><div className="change-list">{preview.map((action, index) => <article key={`${action.type}-${action.path}-${index}`}><h3>{action.path}<span>{action.type === "mkdir" ? t("Crear carpeta", "Create folder") : action.type === "rename" ? `${t("Renombrar", "Rename")} → ${action.newPath}` : action.type === "delete" ? t("Eliminar", "Delete") : action.isNew ? t("Crear archivo", "Create file") : t("Editar archivo", "Edit file")}</span></h3>{action.type === "write" ? <div className="diff-columns"><section><strong>{t("Antes", "Before")}</strong><pre>{action.isNew ? t("Archivo nuevo", "New file") : action.before}</pre></section><section><strong>{t("Después", "After")}</strong><pre>{action.content}</pre></section></div> : <div className={`operation-summary operation-summary--${action.type}`}>{action.type === "mkdir" ? t("Se creará esta carpeta dentro del proyecto.", "This folder will be created inside the project.") : action.type === "rename" ? `${t("Se moverá a", "It will be moved to")} ${action.newPath}.` : t("Se eliminará este elemento del proyecto.", "This project item will be deleted.")}</div>}</article>)}</div><footer><button className="secondary-button" onClick={() => setPreview([])} disabled={applying}>{t("Rechazar todo", "Reject all")}</button><button className="primary-button" onClick={() => void applyPreview()} disabled={applying}>{applying ? t("Aplicando…", "Applying…") : t("Aprobar todo", "Approve all")}</button></footer></section></div>}

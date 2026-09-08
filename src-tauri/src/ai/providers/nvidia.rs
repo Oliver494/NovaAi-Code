@@ -4,23 +4,6 @@ use serde_json::{json, Value};
 pub const MODELS_PATH: &str = "/models";
 pub const CHAT_PATH: &str = "/chat/completions";
 
-pub fn is_chat_model(model: &str) -> bool {
-    let name = model.to_ascii_lowercase();
-    ![
-        "guard",
-        "safety",
-        "topic-control",
-        "gliner",
-        "rerank",
-        "embedding",
-        "nemoretriever",
-        "-parse",
-        "-pii",
-    ]
-    .iter()
-    .any(|excluded| name.contains(excluded))
-}
-
 fn max_tokens(model: &str) -> u64 {
     if model.to_ascii_lowercase().contains("guard") {
         30
@@ -138,14 +121,5 @@ mod tests {
             sent[1].get("content").and_then(Value::as_str),
             Some("hola\n\ncontinúa")
         );
-    }
-
-    #[test]
-    fn excludes_non_chat_catalog_entries() {
-        assert!(is_chat_model("z-ai/glm-5.2"));
-        assert!(!is_chat_model(
-            "nvidia/llama-3.1-nemoguard-8b-content-safety"
-        ));
-        assert!(!is_chat_model("nvidia/gliner-pii"));
     }
 }

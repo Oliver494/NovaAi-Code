@@ -107,6 +107,39 @@ fn is_official_download_url(value: &str) -> bool {
     })
 }
 
+fn installer_rank(name: &str, os: &str, arch: &str) -> Option<u8> {
+    let name = name.to_ascii_lowercase();
+    let is_arm = name.contains("aarch64") || name.contains("arm64");
+    let is_x64 = name.contains("x86_64") || name.contains("amd64") || name.contains("x64");
+    let architecture_matches = match arch {
+        "aarch64" => is_arm,
+        "x86_64" => is_x64,
+        _ => !is_arm && !is_x64,
+    };
+    if !architecture_matches {
+        return None;
+    }
+    match os {
+        "windows" if name.ends_with(".exe") => Some(0),
+        "linux" if name.ends_with(".deb") => Some(0),
+        "linux" if name.ends_with(".appimage") => Some(1),
+        _ => None,
+    }
+}
+
+fn release_asset_url(release: &GitHubRelease, os: &str, arch: &str) -> Option<String> {
+    let mut assets = release
+        .assets
+        .iter()
+        .filter(|asset| is_official_download_url(&asset.browser_download_url))
+        .filter_map(|asset| installer_rank(&asset.name, os, arch).map(|rank| (rank, asset)))
+        .collect::<Vec<_>>();
+    assets.sort_by_key(|(rank, _)| *rank);
+    assets
+        .first()
+        .map(|(_, asset)| asset.browser_download_url.clone())
+}
+
 fn select_release(
     body: &[u8],
     installed: &str,
@@ -128,17 +161,7 @@ fn select_release(
     if !is_official_release_url(&release.html_url) {
         return Err(());
     }
-    let asset_url = release
-        .assets
-        .iter()
-        .filter(|asset| {
-            let name = asset.name.to_ascii_lowercase();
-            name.ends_with(".exe")
-                && name.contains("x64")
-                && is_official_download_url(&asset.browser_download_url)
-        })
-        .map(|asset| asset.browser_download_url.clone())
-        .next();
+    let asset_url = release_asset_url(&release, std::env::consts::OS, std::env::consts::ARCH);
     let notes = release
         .body
         .unwrap_or_default()
@@ -361,6 +384,31 @@ mod tests {
         assert!(!is_official_download_url(
             "https://github.com/another/repo/releases/download/v1/file.exe"
         ));
+    }
+
+    #[test]
+    fn selects_the_installer_for_each_operating_system() {
+        let release = GitHubRelease {
+            tag_name: "v1.0.0".into(),
+            name: None,
+            body: None,
+            html_url: "https://github.com/Oliver494/novaai-code/releases/tag/v1.0.0".into(),
+            draft: false,
+            prerelease: false,
+            published_at: None,
+            assets: vec![
+                GitHubAsset { name: "NovaAI.Code_1.0.0_x64-setup.exe".into(), browser_download_url: "https://github.com/Oliver494/novaai-code/releases/download/v1.0.0/NovaAI.Code_1.0.0_x64-setup.exe".into() },
+                GitHubAsset { name: "NovaAI-Code_1.0.0_amd64.deb".into(), browser_download_url: "https://github.com/Oliver494/novaai-code/releases/download/v1.0.0/NovaAI-Code_1.0.0_amd64.deb".into() },
+                GitHubAsset { name: "NovaAI-Code_1.0.0_amd64.AppImage".into(), browser_download_url: "https://github.com/Oliver494/novaai-code/releases/download/v1.0.0/NovaAI-Code_1.0.0_amd64.AppImage".into() },
+            ],
+        };
+        assert!(release_asset_url(&release, "windows", "x86_64")
+            .unwrap()
+            .ends_with(".exe"));
+        assert!(release_asset_url(&release, "linux", "x86_64")
+            .unwrap()
+            .ends_with(".deb"));
+        assert!(release_asset_url(&release, "linux", "aarch64").is_none());
     }
 
     #[tokio::test]

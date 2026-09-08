@@ -4,6 +4,8 @@ All notable changes will be documented here. The format follows Keep a Changelog
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-08
+
 ### Added
 
 - Multiple projects with stable alphabetical ordering.
@@ -17,6 +19,7 @@ All notable changes will be documented here. The format follows Keep a Changelog
 - Local Git inspection, confirmed commits, recoverable change discard, and hardware-aware local model recommendations.
 - Lazy-loaded editor language support and large-project context tests.
 - Per-conversation `NovaAI` chat mode and `NovaAI Code` agent mode, with backend-enforced project isolation for normal chat.
+- Kali/Debian Linux support with `.deb` and AppImage builds, native agent commands, GPU detection, system keyring storage, ComfyUI discovery, and platform-aware update downloads.
 
 ### Changed
 

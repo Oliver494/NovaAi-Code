@@ -23,7 +23,9 @@ export function ConversationMenu({ conversation, open, onOpen, onClose, onAction
     return () => { document.removeEventListener("mousedown", close); window.removeEventListener("keydown", escape); };
   }, [open, onClose]);
 
-  const action = (value: ConversationMenuAction) => { onAction(value); onClose(); };
+  // Close the portal first so dialogs opened by an action can never remain
+  // hidden underneath the menu's stacking layer.
+  const action = (value: ConversationMenuAction) => { onClose(); queueMicrotask(() => onAction(value)); };
   const rect = trigger.current?.getBoundingClientRect();
   const menuStyle = rect ? {
     position: "fixed" as const,

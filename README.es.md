@@ -2,7 +2,7 @@
 
 Español · [English](README.md)
 
-NovaAI Code es un asistente de programación open source, centrado en IA local y diseñado para Windows. Permite abrir una carpeta real, explorar y editar sus archivos y conectarse con proveedores locales o externos sin crear una cuenta de NovaAI Code.
+NovaAI Code es un asistente de programación open source, centrado en IA local y diseñado para Windows y Linux. Permite abrir una carpeta real, explorar y editar sus archivos y conectarse con proveedores locales o externos sin crear una cuenta de NovaAI Code.
 
 > Beta temprana: utiliza Git o una copia de seguridad para proyectos importantes. Las funciones de agente pueden modificar archivos y ejecutar un conjunto restringido de comandos del proyecto.
 
@@ -34,19 +34,19 @@ NovaAI Code es un asistente de programación open source, centrado en IA local y
 
 ## Seguridad
 
-NovaAI Code bloquea rutas absolutas, `..`, enlaces simbólicos, carpetas ignoradas, nombres inseguros de Windows, operadores de shell y comandos de sistema sin restricciones. Los proveedores externos reciben únicamente los mensajes y el contexto seleccionado para cada solicitud.
+NovaAI Code bloquea rutas absolutas, `..`, enlaces simbólicos, carpetas ignoradas, nombres inseguros para el sistema, operadores de shell y comandos de sistema sin restricciones. Los proveedores externos reciben únicamente los mensajes y el contexto seleccionado para cada solicitud.
 
 Lee [SECURITY.md](SECURITY.md) antes de activar permisos de agente y [PRIVACY.md](PRIVACY.md) para saber cuándo el código puede salir del equipo.
 
 ## Instalación
 
-El instalador estará disponible en Releases cuando existan versiones públicas. Windows puede mostrar una advertencia de SmartScreen mientras el proyecto no disponga de un certificado de firma de código reconocido.
+Descarga desde Releases el instalador `.exe` para Windows, el paquete `.deb` para Kali/Debian/Ubuntu o la AppImage para otras distribuciones Linux x86_64. En Kali, abre la carpeta de descarga e instala el paquete con `sudo apt install ./NovaAI*.deb`. Windows puede mostrar una advertencia de SmartScreen y los paquetes Linux todavía no están firmados.
 
 Los usuarios finales no necesitan instalar Node.js ni Rust.
 
 ## Desarrollo
 
-Requisitos: Node.js 22+, Rust estable, Microsoft C++ Build Tools y los requisitos de WebView2 para Tauri 2.
+Requisitos: Node.js 22+, Rust estable y las dependencias de Tauri 2 para el sistema operativo.
 
 ```bash
 npm install
@@ -56,6 +56,16 @@ npm run tauri dev
 ```bash
 npm run test:all
 npm run tauri build -- --bundles nsis
+```
+
+En Kali/Debian/Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install -y build-essential curl wget file libwebkit2gtk-4.1-dev \
+  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf xdg-utils
+npm ci
+npm run build:linux
 ```
 
 Consulta [ROADMAP.md](ROADMAP.md), [CONTRIBUTING.md](CONTRIBUTING.md) y [CHANGELOG.md](CHANGELOG.md).

@@ -1,10 +1,11 @@
 # Manual QA matrix
 
-Record the application version, Windows version, provider version, model, result, and diagnostic shown.
+Record the application version, operating-system version, provider version, model, result, and diagnostic shown.
 
 ## Installation and projects
 
-- Install and uninstall on a clean Windows 11 virtual machine.
+- Install and uninstall on clean Windows 11 and Kali Linux virtual machines.
+- On Kali, test both the `.deb` and AppImage, the system folder picker, Secret Service key storage, Ollama, agent commands, and update downloads.
 - Open paths containing spaces, accents, long names, and read-only files.
 - Open a large repository and confirm the UI remains responsive.
 - Open Hardware and verify CPU, RAM, storage, optional GPU/VRAM, and model-fit ratings.

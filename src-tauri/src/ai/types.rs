@@ -92,7 +92,13 @@ impl ProviderId {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderConfig {
+    #[serde(default)]
+    pub config_id: String,
     pub provider: ProviderId,
+    #[serde(default)]
+    pub display_name: String,
+    #[serde(default)]
+    pub logo_data_url: Option<String>,
     pub endpoint: String,
     pub model: String,
     #[serde(default)]
@@ -108,7 +114,10 @@ pub struct ProviderConfig {
 impl ProviderConfig {
     pub fn defaults(provider: ProviderId) -> Self {
         Self {
+            config_id: provider.as_str().to_string(),
             provider,
+            display_name: provider.display_name().to_string(),
+            logo_data_url: None,
             endpoint: provider.default_endpoint().to_string(),
             model: String::new(),
             reasoning_effort: ReasoningEffort::Medium,
@@ -128,6 +137,8 @@ impl ProviderConfig {
 #[serde(rename_all = "camelCase")]
 pub struct AiSettings {
     pub active_provider: Option<ProviderId>,
+    #[serde(default)]
+    pub active_config_id: Option<String>,
     pub providers: Vec<ProviderConfig>,
 }
 
@@ -142,13 +153,13 @@ impl Default for AiSettings {
             ProviderId::Nvidia,
             ProviderId::Zai,
             ProviderId::Kimi,
-            ProviderId::Custom,
         ]
         .into_iter()
         .map(ProviderConfig::defaults)
         .collect();
         Self {
             active_provider: None,
+            active_config_id: None,
             providers,
         }
     }
@@ -175,6 +186,10 @@ pub struct LocalModelCatalogItem {
     pub ollama_id: String,
     pub lm_studio_id: String,
     pub recommended: bool,
+    pub category: String,
+    pub capabilities: Vec<String>,
+    pub runtimes: Vec<String>,
+    pub guide_url: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -281,4 +296,46 @@ pub struct ProviderTestResult {
     pub duration_ms: u64,
     pub models: Vec<ModelInfo>,
     pub diagnostic: Option<super::error::Diagnostic>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaGenerationRequest {
+    pub request_id: String,
+    pub config: ProviderConfig,
+    pub mode: String,
+    pub model: String,
+    pub prompt: String,
+    pub image_data: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaGenerationResult {
+    pub media_type: String,
+    pub data_url: String,
+    pub seed: Option<u64>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebSearchRequest {
+    pub query: String,
+    #[serde(default)]
+    pub max_results: Option<usize>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebSearchSource {
+    pub title: String,
+    pub url: String,
+    pub snippet: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebSearchResult {
+    pub query: String,
+    pub sources: Vec<WebSearchSource>,
 }

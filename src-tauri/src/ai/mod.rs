@@ -14,6 +14,8 @@ use reqwest::Client;
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
+    path::PathBuf,
+    process::Command,
     time::{Duration, Instant},
 };
 use tauri::{ipc::Channel, AppHandle, State};
@@ -21,7 +23,9 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use types::{
     AiSettings, ChatEvent, ChatMessage, ChatRequest, ImageInput, LocalModelCatalogItem,
-    LocalModelDownloadEvent, ModelInfo, ProviderConfig, ProviderId, ProviderTestResult,
+    LocalModelDownloadEvent, MediaGenerationRequest, MediaGenerationResult, ModelInfo,
+    ProviderConfig, ProviderId, ProviderTestResult, WebSearchRequest, WebSearchResult,
+    WebSearchSource,
 };
 
 pub struct AiState {
@@ -107,7 +111,8 @@ fn key_for(
     if !config.provider.supports_api_key() {
         return Ok(None);
     }
-    let saved = secrets::get(config.provider, project_path).map_err(secret_error)?;
+    let saved =
+        secrets::get(config.provider, &config.config_id, project_path).map_err(secret_error)?;
     if config.provider == ProviderId::Custom {
         return Ok(saved);
     }
@@ -130,8 +135,8 @@ fn secret_error(error: String) -> Diagnostic {
         "AUTHENTICATION_FAILED",
         "No se pudo usar la clave",
         error,
-        "Windows Credential Manager no está disponible o denegó el acceso.",
-        "Revisa los permisos de Windows y vuelve a intentarlo.",
+        "El almacén seguro de credenciales no está disponible o denegó el acceso.",
+        "Revisa el llavero del sistema y vuelve a intentarlo.",
         false,
     )
 }
@@ -141,7 +146,7 @@ pub fn get_ai_settings(app: AppHandle, project_path: Option<String>) -> Result<A
     let mut settings = config::load(&app, project_path.as_deref())?;
     for item in &mut settings.providers {
         item.api_key_configured = if item.provider.supports_api_key() {
-            secrets::get(item.provider, project_path.as_deref())?.is_some()
+            secrets::get(item.provider, &item.config_id, project_path.as_deref())?.is_some()
         } else {
             false
         };
@@ -155,13 +160,45 @@ pub fn save_ai_settings(
     project_path: Option<String>,
     mut settings: AiSettings,
 ) -> Result<AiSettings, String> {
+    let mut seen_ids = std::collections::HashSet::new();
     for item in &mut settings.providers {
+        if item.config_id.trim().is_empty() || !seen_ids.insert(item.config_id.clone()) {
+            return Err("Cada proveedor debe tener un identificador único.".into());
+        }
+        if item.provider == ProviderId::Custom {
+            item.display_name = item.display_name.trim().to_string();
+            if item.display_name.is_empty() || item.display_name.chars().count() > 48 {
+                return Err(
+                    "El proveedor personalizado necesita un nombre de hasta 48 caracteres.".into(),
+                );
+            }
+            if let Some(logo) = &item.logo_data_url {
+                let valid_type = logo.starts_with("data:image/png;base64,")
+                    || logo.starts_with("data:image/jpeg;base64,")
+                    || logo.starts_with("data:image/webp;base64,");
+                if !valid_type || logo.len() > 700_000 {
+                    return Err("El logo debe ser PNG, JPG o WebP y pesar 512 KB o menos.".into());
+                }
+            }
+        } else {
+            item.config_id = item.provider.as_str().to_string();
+            item.display_name = item.provider.display_name().to_string();
+            item.logo_data_url = None;
+        }
         validate_config(item).map_err(|error| error.explanation)?;
         item.api_key_configured = if item.provider.supports_api_key() {
-            secrets::get(item.provider, project_path.as_deref())?.is_some()
+            secrets::get(item.provider, &item.config_id, project_path.as_deref())?.is_some()
         } else {
             false
         };
+    }
+    if let Some(active_id) = settings.active_config_id.as_deref() {
+        let active = settings
+            .providers
+            .iter()
+            .find(|item| item.config_id == active_id)
+            .ok_or_else(|| "El proveedor activo ya no existe.".to_string())?;
+        settings.active_provider = Some(active.provider);
     }
     config::save(&app, project_path.as_deref(), &settings)?;
     Ok(settings)
@@ -170,21 +207,23 @@ pub fn save_ai_settings(
 #[tauri::command]
 pub fn set_provider_key(
     provider: ProviderId,
+    config_id: String,
     project_path: Option<String>,
     api_key: String,
 ) -> Result<(), String> {
     if !provider.supports_api_key() {
         return Err("Este proveedor no utiliza una clave API.".into());
     }
-    secrets::set(provider, project_path.as_deref(), &api_key)
+    secrets::set(provider, &config_id, project_path.as_deref(), &api_key)
 }
 
 #[tauri::command]
 pub fn delete_provider_key(
     provider: ProviderId,
+    config_id: String,
     project_path: Option<String>,
 ) -> Result<(), String> {
-    secrets::delete(provider, project_path.as_deref())
+    secrets::delete(provider, &config_id, project_path.as_deref())
 }
 
 #[tauri::command]
@@ -249,8 +288,371 @@ pub async fn list_ai_models(
     models_for(config, project_path, &state).await
 }
 
+const NVIDIA_IMAGE_MODELS: &[&str] = &[
+    "black-forest-labs/flux.1-schnell",
+    "black-forest-labs/flux.1-dev",
+    "black-forest-labs/flux.2-klein-4b",
+    "stabilityai/stable-diffusion-3-medium",
+    "stabilityai/stable-diffusion-xl",
+];
+const NVIDIA_VIDEO_MODELS: &[&str] = &["stabilityai/stable-video-diffusion"];
+
+fn media_error(message: impl Into<String>) -> Diagnostic {
+    Diagnostic::new(
+        "MEDIA_GENERATION_FAILED",
+        "No se pudo generar el contenido",
+        message.into(),
+        "El modelo no devolvió un archivo que Nova pudiera abrir.",
+        "Comprueba el modelo y vuelve a intentarlo.",
+        true,
+    )
+}
+
+fn nvidia_media_payload(request: &MediaGenerationRequest) -> Result<Value, Diagnostic> {
+    let prompt = request.prompt.trim();
+    if request.mode == "image" {
+        if !NVIDIA_IMAGE_MODELS.contains(&request.model.as_str()) {
+            return Err(media_error(
+                "El modelo de imagen seleccionado no está disponible.",
+            ));
+        }
+        if prompt.is_empty() || prompt.chars().count() > 10_000 {
+            return Err(media_error(
+                "Escribe una descripción de hasta 10.000 caracteres.",
+            ));
+        }
+        let steps = if request.model.ends_with("schnell") {
+            4
+        } else {
+            30
+        };
+        if request.model == "stabilityai/stable-diffusion-3-medium" {
+            return Ok(json!({
+                "prompt": prompt,
+                "negative_prompt": "",
+                "aspect_ratio": "1:1",
+                "cfg_scale": 5,
+                "mode": "text-to-image",
+                "model": "sd3",
+                "output_format": "jpeg",
+                "seed": 0,
+                "steps": 30,
+            }));
+        }
+        if request.model == "stabilityai/stable-diffusion-xl" {
+            return Ok(json!({
+                "text_prompts": [{"text": prompt, "weight": 1}, {"text": "", "weight": -1}],
+                "cfg_scale": 5,
+                "clip_guidance_preset": "NONE",
+                "height": 1024,
+                "width": 1024,
+                "sampler": "K_DPM_2_ANCESTRAL",
+                "samples": 1,
+                "seed": 0,
+                "steps": 25,
+                "style_preset": "none",
+            }));
+        }
+        let mut body = json!({"prompt": prompt, "height": 1024, "width": 1024, "samples": 1, "seed": 0, "steps": steps});
+        if request.model.ends_with("flux.1-dev") {
+            body["cfg_scale"] = json!(5);
+            body["mode"] = json!("base");
+        } else if request.model.ends_with("flux.2-klein-4b") {
+            body["cfg_scale"] = json!(0);
+            body["mode"] = json!("Image Generation");
+        }
+        Ok(body)
+    } else if request.mode == "video" {
+        if !NVIDIA_VIDEO_MODELS.contains(&request.model.as_str()) {
+            return Err(media_error(
+                "El modelo de vídeo seleccionado no está disponible.",
+            ));
+        }
+        let image = request
+            .image_data
+            .as_deref()
+            .filter(|value| value.starts_with("data:image/"))
+            .ok_or_else(|| {
+                media_error("Para animar un vídeo necesitas adjuntar una imagen PNG, JPG o WebP.")
+            })?;
+        if image.len() > 280_000 {
+            return Err(media_error(
+                "La imagen para vídeo debe pesar menos de 200 KB.",
+            ));
+        }
+        Ok(json!({"image": image, "seed": 0, "cfg_scale": 1.8, "motion_bucket_id": 127}))
+    } else {
+        Err(media_error("El tipo de creación no es válido."))
+    }
+}
+
+fn nvidia_media_result(
+    value: &Value,
+    media_type: &str,
+    image_prefix: &str,
+) -> Result<MediaGenerationResult, Diagnostic> {
+    let artifact = value
+        .get("artifacts")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first());
+    let raw = artifact
+        .and_then(|item| {
+            item.get("base64")
+                .or_else(|| item.get("data"))
+                .or_else(|| item.get("b64_json"))
+        })
+        .or_else(|| {
+            value
+                .get("base64")
+                .or_else(|| value.get("data"))
+                .or_else(|| value.get("b64_json"))
+        })
+        .and_then(Value::as_str)
+        .ok_or_else(|| media_error("NVIDIA respondió sin una imagen o vídeo descargable."))?;
+    let prefix = if raw.starts_with("data:") {
+        ""
+    } else if media_type == "video" {
+        "data:video/mp4;base64,"
+    } else {
+        image_prefix
+    };
+    Ok(MediaGenerationResult {
+        media_type: media_type.into(),
+        data_url: format!("{prefix}{raw}"),
+        seed: artifact
+            .and_then(|item| item.get("seed"))
+            .and_then(Value::as_u64),
+    })
+}
+
+#[tauri::command]
+pub async fn generate_nvidia_media(
+    request: MediaGenerationRequest,
+    project_path: Option<String>,
+    state: State<'_, AiState>,
+) -> Result<MediaGenerationResult, Diagnostic> {
+    if request.request_id.trim().is_empty() {
+        return Err(media_error("Falta el identificador de la generación."));
+    }
+    if request.config.provider != ProviderId::Nvidia {
+        return Err(Diagnostic::new(
+            "UNSUPPORTED_PROVIDER",
+            "Este creador usa NVIDIA API",
+            "Selecciona y configura NVIDIA API para generar imágenes o vídeos.",
+            "Los modelos de creación de esta versión usan los endpoints oficiales de NVIDIA.",
+            "Abre Proveedores, configura NVIDIA API y vuelve a intentarlo.",
+            false,
+        ));
+    }
+    let body = nvidia_media_payload(&request)?;
+    let key = key_for(&request.config, project_path.as_deref())?.ok_or_else(|| {
+        Diagnostic::new(
+            "INVALID_API_KEY",
+            "Falta la clave API",
+            "NVIDIA API necesita una clave configurada.",
+            "La configuración está incompleta.",
+            "Guarda la clave de NVIDIA y vuelve a intentarlo.",
+            false,
+        )
+    })?;
+    let client = client_for(&request.config, &state).await?;
+    let url = format!("https://ai.api.nvidia.com/v1/genai/{}", request.model);
+    let token = CancellationToken::new();
+    state
+        .active
+        .lock()
+        .await
+        .insert(request.request_id.clone(), token.clone());
+    // Visual NIM endpoints sometimes need to provision a worker before they
+    // return the first artifact. Keep a finite cap, but do not cut a valid
+    // generation after the old 45-second window. The UI can cancel this token
+    // at any moment, so the user never has to wait for the whole limit.
+    let request_timeout =
+        Duration::from_secs(request.config.max_response_timeout_secs.clamp(45, 180));
+    let response = tokio::select! {
+        _ = token.cancelled() => Err(Diagnostic::new("CANCELLED", "Creación cancelada", "Cancelaste la creación antes de que NVIDIA terminara.", "La petición fue interrumpida por el usuario.", "Escribe otra idea cuando quieras.", false)),
+        result = tokio::time::timeout(request_timeout, client.post(url).bearer_auth(key).header(reqwest::header::ACCEPT, "application/json").json(&body).send()) => result
+            .map_err(|_| Diagnostic::new("REQUEST_TIMEOUT", "NVIDIA no respondió a tiempo", "NVIDIA no terminó la creación en un máximo de 180 segundos.", "El endpoint de generación está ocupado, está preparando un modelo o no está disponible para esta clave en este momento.", "Pulsa Reintentar, cambia de modelo o usa Cancelar para detener la espera.", true))
+            .and_then(|response| response.map_err(|error| connection_error("NVIDIA API", "https://ai.api.nvidia.com", &error))),
+    };
+    state.active.lock().await.remove(&request.request_id);
+    let response = response?;
+    let status = response.status();
+    let response_body = response
+        .text()
+        .await
+        .map_err(|_| media_error("La respuesta de NVIDIA se interrumpió."))?;
+    if !status.is_success() {
+        return Err(http_error(status, &response_body, "NVIDIA API"));
+    }
+    let value: Value = serde_json::from_str(&response_body)
+        .map_err(|_| media_error("NVIDIA devolvió una respuesta de creación no válida."))?;
+    let image_prefix = if request.model == "stabilityai/stable-diffusion-3-medium" {
+        "data:image/jpeg;base64,"
+    } else {
+        "data:image/png;base64,"
+    };
+    nvidia_media_result(&value, &request.mode, image_prefix)
+}
+
+fn html_attribute(tag: &str, name: &str) -> Option<String> {
+    let needle = format!("{name}=");
+    let start = tag.find(&needle)? + needle.len();
+    let quote = tag.as_bytes().get(start).copied()?;
+    if quote != b'\'' && quote != b'\"' {
+        return None;
+    }
+    let rest = &tag[start + 1..];
+    let end = rest.find(quote as char)?;
+    Some(rest[..end].to_string())
+}
+
+fn decode_html(value: &str) -> String {
+    value
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&#x27;", "'")
+        .replace("&#39;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&nbsp;", " ")
+}
+
+fn html_text(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut inside_tag = false;
+    for character in value.chars() {
+        match character {
+            '<' => inside_tag = true,
+            '>' => {
+                inside_tag = false;
+                output.push(' ');
+            }
+            _ if !inside_tag => output.push(character),
+            _ => {}
+        }
+    }
+    decode_html(&output.split_whitespace().collect::<Vec<_>>().join(" "))
+}
+
+fn clean_search_url(value: &str) -> Option<String> {
+    let absolute = if value.starts_with("//") {
+        format!("https:{value}")
+    } else {
+        value.to_string()
+    };
+    let parsed = url::Url::parse(&absolute).ok()?;
+    if matches!(parsed.scheme(), "http" | "https")
+        && parsed
+            .host_str()
+            .is_some_and(|host| host.ends_with("duckduckgo.com"))
+    {
+        return parsed
+            .query_pairs()
+            .find(|(key, _)| key == "uddg")
+            .map(|(_, url)| url.into_owned())
+            .filter(|url| url.starts_with("https://") || url.starts_with("http://"));
+    }
+    (parsed.scheme() == "https" || parsed.scheme() == "http").then_some(absolute)
+}
+
+fn parse_web_search_results(html: &str, limit: usize) -> Vec<WebSearchSource> {
+    let mut sources = Vec::new();
+    let mut remaining = html;
+    while sources.len() < limit {
+        let Some(anchor_start) = remaining.find("<a") else {
+            break;
+        };
+        remaining = &remaining[anchor_start..];
+        let Some(tag_end) = remaining.find('>') else {
+            break;
+        };
+        let tag = &remaining[..=tag_end];
+        let after_tag = &remaining[tag_end + 1..];
+        let Some(anchor_end) = after_tag.find("</a>") else {
+            remaining = after_tag;
+            continue;
+        };
+        let content = &after_tag[..anchor_end];
+        remaining = &after_tag[anchor_end + 4..];
+        if !tag.contains("result__a") {
+            continue;
+        }
+        let Some(url) = html_attribute(tag, "href").and_then(|href| clean_search_url(&href)) else {
+            continue;
+        };
+        let title = html_text(content);
+        if title.is_empty()
+            || sources
+                .iter()
+                .any(|source: &WebSearchSource| source.url == url)
+        {
+            continue;
+        }
+        let snippet = remaining
+            .find("result__snippet")
+            .and_then(|marker| {
+                let candidate = &remaining[marker..];
+                let start = candidate.find('>')? + 1;
+                let end = candidate.find("</")?;
+                Some(html_text(&candidate[start..end]))
+            })
+            .unwrap_or_default();
+        sources.push(WebSearchSource {
+            title: title.chars().take(220).collect(),
+            url,
+            snippet: snippet.chars().take(500).collect(),
+        });
+    }
+    sources
+}
+
+#[tauri::command]
+pub async fn search_web(request: WebSearchRequest) -> Result<WebSearchResult, Diagnostic> {
+    let query = request.query.trim();
+    if query.is_empty() || query.chars().count() > 600 {
+        return Err(Diagnostic::new(
+            "INVALID_REQUEST",
+            "Búsqueda no válida",
+            "La búsqueda debe tener entre 1 y 600 caracteres.",
+            "La consulta estaba vacía o era demasiado larga.",
+            "Escribe una pregunta más breve y vuelve a intentarlo.",
+            false,
+        ));
+    }
+    let max_results = request.max_results.unwrap_or(4).clamp(1, 6);
+    let encoded = url::form_urlencoded::byte_serialize(query.as_bytes()).collect::<String>();
+    let client = Client::builder()
+        .connect_timeout(Duration::from_secs(6))
+        .timeout(Duration::from_secs(12))
+        .user_agent("NovaAI-Code/0.1 (web search)")
+        .build()
+        .map_err(|error| {
+            connection_error("la búsqueda web", "https://html.duckduckgo.com", &error)
+        })?;
+    let response = client
+        .get(format!("https://html.duckduckgo.com/html/?q={encoded}"))
+        .header(reqwest::header::ACCEPT, "text/html")
+        .send()
+        .await
+        .map_err(|error| {
+            connection_error("la búsqueda web", "https://html.duckduckgo.com", &error)
+        })?;
+    let status = response.status();
+    let html = response.text().await.map_err(|error| {
+        connection_error("la búsqueda web", "https://html.duckduckgo.com", &error)
+    })?;
+    if !status.is_success() {
+        return Err(http_error(status, &html, "la búsqueda web"));
+    }
+    Ok(WebSearchResult {
+        query: query.to_string(),
+        sources: parse_web_search_results(&html, max_results),
+    })
+}
+
 fn local_model_catalog() -> Vec<LocalModelCatalogItem> {
-    [
+    let mut items = [
         (
             "qwen3-4b",
             "Qwen3 4B",
@@ -473,19 +875,194 @@ fn local_model_catalog() -> Vec<LocalModelCatalogItem> {
             ollama_id,
             lm_studio_id,
             recommended,
-        )| LocalModelCatalogItem {
-            id: id.into(),
-            name: name.into(),
-            family: family.into(),
-            description: description.into(),
-            parameters: parameters.into(),
-            size: size.into(),
-            ollama_id: ollama_id.into(),
-            lm_studio_id: lm_studio_id.into(),
-            recommended,
+        )| {
+            let category = match id {
+                "qwen3-coder-30b" | "codegemma-7b" | "codellama-7b" | "starcoder2-7b" => "code",
+                "gemma3-4b" | "gemma3-12b" => "vision",
+                _ => "chat",
+            };
+            let capabilities = match category {
+                "code" => vec!["Código".into(), "Texto".into()],
+                "vision" => vec!["Texto".into(), "Comprender imágenes".into()],
+                _ => vec!["Chat".into(), "Texto".into()],
+            };
+            LocalModelCatalogItem {
+                id: id.into(),
+                name: name.into(),
+                family: family.into(),
+                description: description.into(),
+                parameters: parameters.into(),
+                size: size.into(),
+                ollama_id: ollama_id.into(),
+                lm_studio_id: lm_studio_id.into(),
+                recommended,
+                category: category.into(),
+                capabilities,
+                runtimes: vec!["ollama".into(), "lm_studio".into()],
+                guide_url: None,
+            }
         },
     )
-    .collect()
+    .collect::<Vec<_>>();
+
+    items.extend([
+        LocalModelCatalogItem {
+            id: "qwen3-vl-4b".into(),
+            name: "Qwen3-VL 4B".into(),
+            family: "Qwen".into(),
+            description: "Modelo visual ligero para comprender capturas, interfaces y documentos."
+                .into(),
+            parameters: "4B".into(),
+            size: "~3.3 GB".into(),
+            ollama_id: "qwen3-vl:4b".into(),
+            lm_studio_id: "qwen/qwen3-vl-4b".into(),
+            recommended: true,
+            category: "vision".into(),
+            capabilities: vec!["Texto".into(), "Comprender imágenes".into()],
+            runtimes: vec!["ollama".into(), "lm_studio".into()],
+            guide_url: None,
+        },
+        LocalModelCatalogItem {
+            id: "qwen3-vl-8b".into(),
+            name: "Qwen3-VL 8B".into(),
+            family: "Qwen".into(),
+            description: "Mayor calidad visual para analizar imágenes y proyectos desde capturas."
+                .into(),
+            parameters: "8B".into(),
+            size: "~6.1 GB".into(),
+            ollama_id: "qwen3-vl:8b".into(),
+            lm_studio_id: "qwen/qwen3-vl-8b".into(),
+            recommended: true,
+            category: "vision".into(),
+            capabilities: vec!["Texto".into(), "Comprender imágenes".into()],
+            runtimes: vec!["ollama".into(), "lm_studio".into()],
+            guide_url: None,
+        },
+        LocalModelCatalogItem {
+            id: "gemma3-27b".into(),
+            name: "Gemma 3 27B".into(),
+            family: "Google".into(),
+            description: "Modelo visual de alta calidad para equipos con bastante memoria.".into(),
+            parameters: "27B".into(),
+            size: "~17 GB".into(),
+            ollama_id: "gemma3:27b".into(),
+            lm_studio_id: "google/gemma-3-27b".into(),
+            recommended: false,
+            category: "vision".into(),
+            capabilities: vec!["Texto".into(), "Comprender imágenes".into()],
+            runtimes: vec!["ollama".into(), "lm_studio".into()],
+            guide_url: None,
+        },
+        LocalModelCatalogItem {
+            id: "qwen25-coder-7b".into(),
+            name: "Qwen2.5 Coder 7B".into(),
+            family: "Qwen".into(),
+            description: "Modelo de código rápido para equipos de gama media.".into(),
+            parameters: "7B".into(),
+            size: "~4.7 GB".into(),
+            ollama_id: "qwen2.5-coder:7b".into(),
+            lm_studio_id: "qwen/qwen2.5-coder-7b-instruct".into(),
+            recommended: true,
+            category: "code".into(),
+            capabilities: vec!["Código".into(), "Texto".into()],
+            runtimes: vec!["ollama".into(), "lm_studio".into()],
+            guide_url: None,
+        },
+        LocalModelCatalogItem {
+            id: "qwen25-coder-14b".into(),
+            name: "Qwen2.5 Coder 14B".into(),
+            family: "Qwen".into(),
+            description: "Más precisión para cambios de código grandes y explicaciones técnicas."
+                .into(),
+            parameters: "14B".into(),
+            size: "~9 GB".into(),
+            ollama_id: "qwen2.5-coder:14b".into(),
+            lm_studio_id: "qwen/qwen2.5-coder-14b-instruct".into(),
+            recommended: true,
+            category: "code".into(),
+            capabilities: vec!["Código".into(), "Texto".into()],
+            runtimes: vec!["ollama".into(), "lm_studio".into()],
+            guide_url: None,
+        },
+        LocalModelCatalogItem {
+            id: "flux1-schnell".into(),
+            name: "FLUX.1 Schnell".into(),
+            family: "Black Forest Labs".into(),
+            description: "Generación local de imágenes rápida mediante flujos de ComfyUI.".into(),
+            parameters: "Imagen".into(),
+            size: "FP8 / completo".into(),
+            ollama_id: String::new(),
+            lm_studio_id: String::new(),
+            recommended: true,
+            category: "image".into(),
+            capabilities: vec!["Texto a imagen".into(), "Rápido".into()],
+            runtimes: vec!["comfyui".into()],
+            guide_url: Some("https://docs.comfy.org/tutorials/flux/flux-1-text-to-image".into()),
+        },
+        LocalModelCatalogItem {
+            id: "flux2-dev".into(),
+            name: "FLUX.2 Dev".into(),
+            family: "Black Forest Labs".into(),
+            description: "Generador avanzado de imágenes para equipos potentes con ComfyUI.".into(),
+            parameters: "Imagen".into(),
+            size: "Varios archivos".into(),
+            ollama_id: String::new(),
+            lm_studio_id: String::new(),
+            recommended: false,
+            category: "image".into(),
+            capabilities: vec!["Texto a imagen".into(), "Alta calidad".into()],
+            runtimes: vec!["comfyui".into()],
+            guide_url: Some("https://docs.comfy.org/tutorials/flux/flux-2-dev".into()),
+        },
+        LocalModelCatalogItem {
+            id: "stable-diffusion-15".into(),
+            name: "Stable Diffusion 1.5".into(),
+            family: "Stability AI".into(),
+            description: "Generador clásico y ligero con una gran variedad de modelos compatibles."
+                .into(),
+            parameters: "Imagen".into(),
+            size: "~4 GB".into(),
+            ollama_id: String::new(),
+            lm_studio_id: String::new(),
+            recommended: false,
+            category: "image".into(),
+            capabilities: vec!["Texto a imagen".into(), "Ligero".into()],
+            runtimes: vec!["comfyui".into()],
+            guide_url: Some("https://docs.comfy.org/tutorials/basic/text-to-image".into()),
+        },
+        LocalModelCatalogItem {
+            id: "wan22-ti2v-5b".into(),
+            name: "Wan2.2 TI2V 5B".into(),
+            family: "Wan".into(),
+            description: "Crea vídeos locales desde texto o una imagen usando ComfyUI.".into(),
+            parameters: "5B".into(),
+            size: "Varios archivos".into(),
+            ollama_id: String::new(),
+            lm_studio_id: String::new(),
+            recommended: true,
+            category: "video".into(),
+            capabilities: vec!["Texto a vídeo".into(), "Imagen a vídeo".into()],
+            runtimes: vec!["comfyui".into()],
+            guide_url: Some("https://docs.comfy.org/tutorials/video/wan/wan2_2".into()),
+        },
+        LocalModelCatalogItem {
+            id: "wan22-t2v-14b".into(),
+            name: "Wan2.2 T2V 14B".into(),
+            family: "Wan".into(),
+            description: "Vídeo desde texto con mayor calidad y requisitos de hardware altos."
+                .into(),
+            parameters: "14B".into(),
+            size: "Varios archivos".into(),
+            ollama_id: String::new(),
+            lm_studio_id: String::new(),
+            recommended: false,
+            category: "video".into(),
+            capabilities: vec!["Texto a vídeo".into(), "Alta calidad".into()],
+            runtimes: vec!["comfyui".into()],
+            guide_url: Some("https://docs.comfy.org/tutorials/video/wan/wan2_2".into()),
+        },
+    ]);
+    items
 }
 
 #[tauri::command]
@@ -523,6 +1100,25 @@ pub async fn download_local_model(
             false,
         ));
     };
+    let runtime = match config.provider {
+        ProviderId::Ollama => "ollama",
+        ProviderId::LmStudio => "lm_studio",
+        _ => unreachable!(),
+    };
+    if !model.runtimes.iter().any(|item| item == runtime) {
+        return Err(Diagnostic::new(
+            "INCOMPATIBLE_RUNTIME",
+            "Este modelo necesita otro motor",
+            format!(
+                "{} no se puede instalar con {}.",
+                model.name,
+                config.provider.display_name()
+            ),
+            "Los modelos de imagen y vídeo usan un motor de generación distinto.",
+            "Abre la guía oficial de ComfyUI desde la biblioteca.",
+            false,
+        ));
+    }
     let result = match config.provider {
         ProviderId::Ollama => pull_ollama_model(&config, &model, &on_event, &state).await,
         ProviderId::LmStudio => pull_lm_studio_model(&config, &model, &on_event, &state).await,
@@ -540,6 +1136,333 @@ pub async fn download_local_model(
             Err(diagnostic)
         }
     }
+}
+
+fn comfyui_model_files(model_id: &str) -> Option<&'static [&'static str]> {
+    match model_id {
+        "flux1-schnell" => Some(&["flux1-schnell-fp8.safetensors"]),
+        "flux2-dev" => Some(&[
+            "mistral_3_small_flux2_bf16.safetensors",
+            "flux2_dev_fp8mixed.safetensors",
+            "flux2-vae.safetensors",
+        ]),
+        "stable-diffusion-15" => Some(&["v1-5-pruned-emaonly.ckpt"]),
+        "wan22-ti2v-5b" => Some(&[
+            "wan2.2_ti2v_5B_fp16.safetensors",
+            "wan2.2_vae.safetensors",
+            "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+        ]),
+        "wan22-t2v-14b" => Some(&[
+            "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+            "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+            "wan2.2_vae.safetensors",
+            "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+        ]),
+        _ => None,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn comfy_launcher() -> Option<PathBuf> {
+    let path = PathBuf::from(std::env::var_os("LOCALAPPDATA")?)
+        .join("Programs")
+        .join("Comfy Desktop")
+        .join("Comfy Desktop.exe");
+    path.is_file().then_some(path)
+}
+
+#[cfg(target_os = "linux")]
+fn comfy_launcher() -> Option<PathBuf> {
+    let path_value = std::env::var_os("PATH").unwrap_or_default();
+    std::env::split_paths(&path_value)
+        .map(|directory| directory.join("comfy"))
+        .find(|candidate| candidate.is_file())
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+fn comfy_launcher() -> Option<PathBuf> {
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn comfy_has_local_installation() -> bool {
+    let Some(app_data) = std::env::var_os("APPDATA") else {
+        return false;
+    };
+    let path = PathBuf::from(app_data)
+        .join("Comfy Desktop")
+        .join("installations.json");
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    serde_json::from_str::<Value>(&content)
+        .ok()
+        .is_some_and(|value| comfy_installations_include_local(&value))
+}
+
+#[cfg(target_os = "linux")]
+fn comfy_has_local_installation() -> bool {
+    if comfy_launcher().is_some() {
+        return true;
+    }
+    let Some(home) = std::env::var_os("HOME") else {
+        return false;
+    };
+    let home = PathBuf::from(home);
+    [
+        home.join("ComfyUI").join("main.py"),
+        home.join("comfyui").join("main.py"),
+        home.join(".local")
+            .join("share")
+            .join("ComfyUI")
+            .join("main.py"),
+    ]
+    .iter()
+    .any(|path| path.is_file())
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+fn comfy_has_local_installation() -> bool {
+    false
+}
+
+fn comfy_installations_include_local(value: &Value) -> bool {
+    value.as_array().is_some_and(|items| {
+        items.iter().any(|item| {
+            item.get("sourceId").and_then(Value::as_str) != Some("cloud")
+                && item.get("remoteUrl").and_then(Value::as_str).is_none()
+                && item.get("status").and_then(Value::as_str) == Some("installed")
+        })
+    })
+}
+
+#[tauri::command]
+pub fn open_comfyui_desktop() -> Result<(), Diagnostic> {
+    let Some(executable) = comfy_launcher() else {
+        return Err(Diagnostic::new(
+            "PROVIDER_NOT_INSTALLED",
+            "ComfyUI no está instalado",
+            "Nova no encontró un lanzador de ComfyUI en este equipo.",
+            "La instalación no existe o está en una ubicación personalizada.",
+            "Instala ComfyUI o inícialo manualmente en 127.0.0.1:8188.",
+            true,
+        ));
+    };
+    let mut command = Command::new(executable);
+    #[cfg(target_os = "linux")]
+    command.arg("launch");
+    command.spawn().map_err(|error| {
+        Diagnostic::new(
+            "CONNECTION_FAILED",
+            "No se pudo abrir ComfyUI",
+            "El sistema no permitió iniciar ComfyUI.",
+            error.to_string(),
+            "Ábrelo manualmente y vuelve a intentarlo.",
+            true,
+        )
+    })?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn download_comfyui_model(
+    model_id: String,
+    on_event: Channel<LocalModelDownloadEvent>,
+) -> Result<(), Diagnostic> {
+    let Some(model) = local_model_catalog().into_iter().find(|item| {
+        item.id == model_id && item.runtimes.iter().any(|runtime| runtime == "comfyui")
+    }) else {
+        return Err(Diagnostic::new(
+            "MODEL_NOT_FOUND",
+            "Modelo no disponible",
+            "Este modelo no está disponible para ComfyUI.",
+            "El catálogo pudo cambiar.",
+            "Actualiza la biblioteca y vuelve a intentarlo.",
+            false,
+        ));
+    };
+    let Some(required_files) = comfyui_model_files(&model_id) else {
+        return Err(Diagnostic::new(
+            "MODEL_NOT_FOUND",
+            "Descarga no configurada",
+            "Nova todavía no conoce los archivos necesarios para este modelo.",
+            "El modelo necesita varios componentes específicos.",
+            "Actualiza NovaAI Code y vuelve a intentarlo.",
+            false,
+        ));
+    };
+    let client = Client::builder()
+        .connect_timeout(Duration::from_secs(2))
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|error| {
+            Diagnostic::new(
+                "CONNECTION_FAILED",
+                "No se pudo preparar la conexión",
+                "Nova no pudo crear la conexión con ComfyUI.",
+                error.to_string(),
+                "Vuelve a intentarlo.",
+                true,
+            )
+        })?;
+    let _ = on_event.send(LocalModelDownloadEvent::Status {
+        message: "Buscando una instalación local de ComfyUI…".into(),
+        progress: Some(0),
+    });
+    let mut endpoint = None;
+    for candidate in [
+        "http://127.0.0.1:8000",
+        "http://127.0.0.1:8188",
+        "http://127.0.0.1:8189",
+        "http://127.0.0.1:8190",
+    ] {
+        if let Ok(response) = client.get(format!("{candidate}/system_stats")).send().await {
+            if response.status().is_success() {
+                endpoint = Some(candidate.to_string());
+                break;
+            }
+        }
+    }
+    let Some(endpoint) = endpoint else {
+        let local_setup = comfy_has_local_installation();
+        let installed = comfy_launcher().is_some() || local_setup;
+        return Err(if installed && !local_setup {
+            Diagnostic::new(
+                "COMFYUI_LOCAL_SETUP_REQUIRED",
+                "Falta crear una instalación local",
+                "Comfy Desktop está instalado, pero solo configuraste Comfy Cloud.",
+                "Los modelos locales necesitan una instalación Local dentro de Comfy Desktop.",
+                "Abre Comfy Desktop, añade una instalación Local, iníciala y vuelve a pulsar Descargar.",
+                true,
+            )
+        } else if installed {
+            Diagnostic::new(
+                "SERVER_OFFLINE",
+                "ComfyUI local está cerrado",
+                "Nova encontró Comfy Desktop, pero su servidor local no está funcionando.",
+                "La instalación local está detenida o todavía está iniciándose.",
+                "Abre Comfy Desktop, inicia tu instalación local y vuelve a pulsar Descargar.",
+                true,
+            )
+        } else {
+            Diagnostic::new(
+                "PROVIDER_NOT_INSTALLED",
+                "ComfyUI no está instalado",
+                "Nova no encontró Comfy Desktop en este equipo.",
+                "ComfyUI es el motor necesario para modelos de imagen y vídeo.",
+                "Instala Comfy Desktop, crea una instalación Local y vuelve a intentarlo.",
+                true,
+            )
+        });
+    };
+    let response = client
+        .get(format!("{endpoint}/externalmodel/getlist?mode=remote"))
+        .send()
+        .await
+        .map_err(|error| connection_error("ComfyUI-Manager", &endpoint, &error))?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err(Diagnostic::new(
+            "COMFYUI_MANAGER_MISSING",
+            "Falta ComfyUI-Manager",
+            "ComfyUI está abierto, pero su gestor de modelos no responde.",
+            "ComfyUI-Manager no está instalado o está desactivado.",
+            "Instala ComfyUI-Manager, reinicia ComfyUI y vuelve a intentarlo.",
+            true,
+        ));
+    }
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(http_error(status, &body, "ComfyUI-Manager"));
+    }
+    let value: Value = serde_json::from_str(&body).map_err(|_| {
+        Diagnostic::new(
+            "INVALID_RESPONSE",
+            "ComfyUI devolvió una respuesta inválida",
+            "Nova no pudo leer el catálogo de ComfyUI-Manager.",
+            "La versión instalada puede ser incompatible.",
+            "Actualiza ComfyUI-Manager y vuelve a intentarlo.",
+            true,
+        )
+    })?;
+    let models = value
+        .get("models")
+        .and_then(Value::as_array)
+        .or_else(|| value.as_array())
+        .ok_or_else(|| {
+            Diagnostic::new(
+                "INVALID_RESPONSE",
+                "Catálogo de ComfyUI incompatible",
+                "Nova no encontró la lista de modelos esperada.",
+                "ComfyUI-Manager cambió el formato de su catálogo.",
+                "Actualiza ComfyUI-Manager o NovaAI Code.",
+                true,
+            )
+        })?;
+    let mut payloads = Vec::with_capacity(required_files.len());
+    for filename in required_files {
+        let Some(metadata) = models.iter().find(|entry| {
+            entry.get("filename").and_then(Value::as_str) == Some(filename)
+                || entry
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .is_some_and(|url| url.ends_with(filename))
+        }) else {
+            return Err(Diagnostic::new(
+                "MODEL_NOT_FOUND",
+                "ComfyUI no encontró todos los archivos",
+                format!("Falta {filename} en el catálogo de ComfyUI-Manager."),
+                "El catálogo de modelos puede estar desactualizado.",
+                "Actualiza ComfyUI-Manager y vuelve a intentarlo.",
+                true,
+            ));
+        };
+        let mut payload = metadata.clone();
+        if let Some(object) = payload.as_object_mut() {
+            object.insert(
+                "ui_id".into(),
+                Value::String(format!("nova-{model_id}-{filename}")),
+            );
+        }
+        payloads.push(payload);
+    }
+    for (index, payload) in payloads.iter().enumerate() {
+        let filename = payload
+            .get("filename")
+            .and_then(Value::as_str)
+            .unwrap_or("archivo del modelo");
+        let _ = on_event.send(LocalModelDownloadEvent::Status {
+            message: format!("Añadiendo {filename} a la cola de ComfyUI…"),
+            progress: Some(((index * 80) / payloads.len().max(1)) as u8),
+        });
+        let response = client
+            .post(format!("{endpoint}/manager/queue/install_model"))
+            .json(payload)
+            .send()
+            .await
+            .map_err(|error| connection_error("ComfyUI-Manager", &endpoint, &error))?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(http_error(status, &body, "ComfyUI-Manager"));
+        }
+    }
+    let response = client
+        .post(format!("{endpoint}/manager/queue/start"))
+        .send()
+        .await
+        .map_err(|error| connection_error("ComfyUI-Manager", &endpoint, &error))?;
+    if !response.status().is_success() && response.status() != reqwest::StatusCode::CREATED {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(http_error(status, &body, "ComfyUI-Manager"));
+    }
+    let _ = on_event.send(LocalModelDownloadEvent::Status {
+        message: format!("{} se está descargando en ComfyUI.", model.name),
+        progress: Some(100),
+    });
+    let _ = on_event.send(LocalModelDownloadEvent::Done { model_id });
+    Ok(())
 }
 
 async fn pull_ollama_model(
@@ -815,35 +1738,61 @@ pub async fn test_ai_provider(
 }
 
 fn local_provider_installed(provider: ProviderId) -> bool {
-    let local = std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from);
-    let program_files = std::env::var_os("ProgramFiles").map(std::path::PathBuf::from);
-    let candidates: Vec<std::path::PathBuf> = match provider {
-        ProviderId::Ollama => local
-            .into_iter()
-            .flat_map(|root| {
-                [
-                    root.join("Programs/Ollama/ollama.exe"),
-                    root.join("Programs/Ollama/ollama app.exe"),
-                ]
+    fn available_on_path(names: &[&str]) -> bool {
+        let path_value = std::env::var_os("PATH").unwrap_or_default();
+        std::env::split_paths(&path_value).any(|directory| {
+            names.iter().any(|name| {
+                let candidate = directory.join(name);
+                candidate.is_file()
+                    || (cfg!(target_os = "windows")
+                        && directory.join(format!("{name}.exe")).is_file())
             })
-            .collect(),
-        ProviderId::LmStudio => local
-            .into_iter()
-            .flat_map(|root| {
-                [
-                    root.join("Programs/LM Studio/LM Studio.exe"),
-                    root.join("LM Studio/LM Studio.exe"),
-                ]
-            })
-            .chain(
-                program_files
-                    .into_iter()
-                    .map(|root| root.join("LM Studio/LM Studio.exe")),
-            )
-            .collect(),
-        _ => return true,
-    };
-    candidates.iter().any(|path| path.is_file())
+        })
+    }
+
+    if match provider {
+        ProviderId::Ollama => available_on_path(&["ollama"]),
+        ProviderId::LmStudio => available_on_path(&["lm-studio", "lmstudio"]),
+        _ => true,
+    } {
+        return true;
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    return false;
+
+    #[cfg(target_os = "windows")]
+    {
+        let local = std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from);
+        let program_files = std::env::var_os("ProgramFiles").map(std::path::PathBuf::from);
+        let candidates: Vec<std::path::PathBuf> = match provider {
+            ProviderId::Ollama => local
+                .into_iter()
+                .flat_map(|root| {
+                    [
+                        root.join("Programs/Ollama/ollama.exe"),
+                        root.join("Programs/Ollama/ollama app.exe"),
+                    ]
+                })
+                .collect(),
+            ProviderId::LmStudio => local
+                .into_iter()
+                .flat_map(|root| {
+                    [
+                        root.join("Programs/LM Studio/LM Studio.exe"),
+                        root.join("LM Studio/LM Studio.exe"),
+                    ]
+                })
+                .chain(
+                    program_files
+                        .into_iter()
+                        .map(|root| root.join("LM Studio/LM Studio.exe")),
+                )
+                .collect(),
+            _ => return true,
+        };
+        candidates.iter().any(|path| path.is_file())
+    }
 }
 
 fn context_messages(
@@ -1368,6 +2317,19 @@ mod tests {
     }
 
     #[test]
+    fn web_results_keep_destination_urls_without_duckduckgo_redirects() {
+        let html = r#"
+          <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.rust-lang.org%2F">Rust</a>
+          <a class="result__snippet">A programming language for everyone.</a>
+        "#;
+        let results = parse_web_search_results(html, 4);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Rust");
+        assert_eq!(results[0].url, "https://www.rust-lang.org/");
+        assert_eq!(results[0].snippet, "A programming language for everyone.");
+    }
+
+    #[test]
     fn operational_protocol_is_a_system_message_not_part_of_the_user_prompt() {
         let temporary = tempfile::tempdir().unwrap();
         std::fs::write(temporary.path().join("readme.txt"), "project context").unwrap();
@@ -1458,5 +2420,118 @@ mod tests {
         assert_eq!(stream_boundary("data: {}\n\n", true), Some((8, 2)));
         assert_eq!(stream_boundary("data: {}\r\n\r\n", true), Some((8, 4)));
         assert_eq!(stream_boundary("{\"done\":false}\n", false), Some((14, 1)));
+    }
+
+    #[test]
+    fn local_catalog_has_distinct_ai_categories_and_unique_ids() {
+        let catalog = local_model_catalog();
+        let categories = catalog
+            .iter()
+            .map(|item| item.category.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        let ids = catalog
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(ids.len(), catalog.len());
+        for expected in ["chat", "code", "vision", "image", "video"] {
+            assert!(categories.contains(expected));
+        }
+        assert!(catalog.iter().any(|item| item.id == "qwen3-vl-4b"));
+    }
+
+    #[test]
+    fn nvidia_media_uses_the_documented_image_and_video_shapes() {
+        let image = MediaGenerationRequest {
+            request_id: "test-image".into(),
+            config: ProviderConfig::defaults(ProviderId::Nvidia),
+            mode: "image".into(),
+            model: "black-forest-labs/flux.1-schnell".into(),
+            prompt: "A small nebula".into(),
+            image_data: None,
+        };
+        assert_eq!(
+            nvidia_media_payload(&image)
+                .unwrap()
+                .get("steps")
+                .and_then(Value::as_u64),
+            Some(4)
+        );
+        let sd3 = MediaGenerationRequest {
+            request_id: "test-sd3".into(),
+            config: ProviderConfig::defaults(ProviderId::Nvidia),
+            mode: "image".into(),
+            model: "stabilityai/stable-diffusion-3-medium".into(),
+            prompt: "A small nebula".into(),
+            image_data: None,
+        };
+        assert_eq!(
+            nvidia_media_payload(&sd3)
+                .unwrap()
+                .get("model")
+                .and_then(Value::as_str),
+            Some("sd3")
+        );
+        let sdxl = MediaGenerationRequest {
+            request_id: "test-sdxl".into(),
+            config: ProviderConfig::defaults(ProviderId::Nvidia),
+            mode: "image".into(),
+            model: "stabilityai/stable-diffusion-xl".into(),
+            prompt: "A small nebula".into(),
+            image_data: None,
+        };
+        assert!(nvidia_media_payload(&sdxl)
+            .unwrap()
+            .get("text_prompts")
+            .is_some());
+        let video = MediaGenerationRequest {
+            request_id: "test-video".into(),
+            config: ProviderConfig::defaults(ProviderId::Nvidia),
+            mode: "video".into(),
+            model: "stabilityai/stable-video-diffusion".into(),
+            prompt: String::new(),
+            image_data: Some("data:image/png;base64,AA==".into()),
+        };
+        assert!(nvidia_media_payload(&video).unwrap().get("image").is_some());
+        let generated = nvidia_media_result(
+            &json!({"artifacts":[{"base64":"AAAA","seed":12}]}),
+            "image",
+            "data:image/png;base64,",
+        )
+        .unwrap();
+        assert_eq!(generated.data_url, "data:image/png;base64,AAAA");
+        assert_eq!(generated.seed, Some(12));
+    }
+
+    #[test]
+    fn generation_models_are_not_exposed_to_chat_runtimes() {
+        for model in local_model_catalog()
+            .into_iter()
+            .filter(|item| matches!(item.category.as_str(), "image" | "video"))
+        {
+            assert_eq!(model.runtimes, vec!["comfyui"]);
+            assert!(model.ollama_id.is_empty());
+            assert!(model.lm_studio_id.is_empty());
+            assert!(model
+                .guide_url
+                .as_deref()
+                .is_some_and(|url| url.starts_with("https://docs.comfy.org/")));
+            assert!(comfyui_model_files(&model.id).is_some());
+        }
+    }
+
+    #[test]
+    fn comfy_desktop_cloud_entry_is_not_mistaken_for_a_local_runtime() {
+        let cloud_only = json!([{
+            "sourceId": "cloud",
+            "remoteUrl": "https://cloud.comfy.org/",
+            "status": "installed"
+        }]);
+        let with_local = json!([
+            { "sourceId": "cloud", "remoteUrl": "https://cloud.comfy.org/", "status": "installed" },
+            { "sourceId": "standalone", "installPath": "C:/ComfyUI", "status": "installed" }
+        ]);
+        assert!(!comfy_installations_include_local(&cloud_only));
+        assert!(comfy_installations_include_local(&with_local));
     }
 }

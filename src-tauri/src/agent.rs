@@ -194,19 +194,42 @@ fn safe_cwd(root: &Path, relative: &str) -> Result<PathBuf, String> {
 fn allowed_program(value: &str) -> Option<&'static str> {
     let name = value.trim().to_ascii_lowercase();
     match name.trim_end_matches(".exe").trim_end_matches(".cmd") {
-        "npm" => Some("npm.cmd"),
-        "npx" => Some("npx.cmd"),
-        "pnpm" => Some("pnpm.cmd"),
-        "yarn" => Some("yarn.cmd"),
+        "npm" => Some(if cfg!(target_os = "windows") {
+            "npm.cmd"
+        } else {
+            "npm"
+        }),
+        "npx" => Some(if cfg!(target_os = "windows") {
+            "npx.cmd"
+        } else {
+            "npx"
+        }),
+        "pnpm" => Some(if cfg!(target_os = "windows") {
+            "pnpm.cmd"
+        } else {
+            "pnpm"
+        }),
+        "yarn" => Some(if cfg!(target_os = "windows") {
+            "yarn.cmd"
+        } else {
+            "yarn"
+        }),
         "cargo" => Some("cargo"),
         "rustc" => Some("rustc"),
-        "python" => Some("python"),
-        "py" => Some("py"),
+        "python" | "py" => Some(if cfg!(target_os = "windows") {
+            "python"
+        } else {
+            "python3"
+        }),
         "pytest" => Some("pytest"),
         "dotnet" => Some("dotnet"),
         "go" => Some("go"),
         "java" => Some("java"),
-        "mvn" => Some("mvn.cmd"),
+        "mvn" => Some(if cfg!(target_os = "windows") {
+            "mvn.cmd"
+        } else {
+            "mvn"
+        }),
         "gradle" => Some("gradle"),
         _ => None,
     }
@@ -458,6 +481,21 @@ mod tests {
         assert!(allowed_program("powershell").is_none());
         assert!(validate_args(&["test".into(), "&&".into(), "format".into()]).is_err());
         assert!(validate_args(&["test".into()]).is_ok());
+    }
+    #[test]
+    fn resolves_package_managers_for_the_current_platform() {
+        let expected_npm = if cfg!(target_os = "windows") {
+            "npm.cmd"
+        } else {
+            "npm"
+        };
+        let expected_python = if cfg!(target_os = "windows") {
+            "python"
+        } else {
+            "python3"
+        };
+        assert_eq!(allowed_program("npm"), Some(expected_npm));
+        assert_eq!(allowed_program("python"), Some(expected_python));
     }
     #[test]
     fn detects_project_commands_without_guessing() {

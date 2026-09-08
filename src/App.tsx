@@ -9,6 +9,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Settings2,
+  WandSparkles,
   X,
 } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -24,6 +25,7 @@ import { PreferencesPanel } from "./components/PreferencesPanel";
 import { ProjectSwitcher } from "./components/ProjectSwitcher";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
+import { MediaStudio } from "./components/MediaStudio";
 import { ai } from "./services/ai";
 import { chooseProjectFolder, errorMessage, projectFiles } from "./services/fileSystem";
 import { usePreferences } from "./services/preferences";
@@ -62,7 +64,10 @@ function App() {
   const [activePath, setActivePath] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [workspaceView, setWorkspaceView] = useState<"files" | "chat">("files");
-  const [assistantWorkspace, setAssistantWorkspace] = useState<AssistantWorkspace>(() => localStorage.getItem(LAST_WORKSPACE_KEY) === "chat" ? "chat" : "code");
+  const [assistantWorkspace, setAssistantWorkspace] = useState<AssistantWorkspace>(() => {
+    const stored = localStorage.getItem(LAST_WORKSPACE_KEY);
+    return stored === "chat" || stored === "media" ? stored : "code";
+  });
   const [providerOpen, setProviderOpen] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const [firstRunOpen, setFirstRunOpen] = useState(shouldShowFirstRun);
@@ -311,7 +316,7 @@ function App() {
   }
 
   const dirtyCount = useMemo(() => openFiles.filter((file) => file.content !== file.savedContent).length, [openFiles]);
-  const activeSettings = assistantWorkspace === "chat" ? chatSettings : codeSettings;
+  const activeSettings = assistantWorkspace === "code" ? codeSettings : chatSettings;
 
   return (
     <div className="app-shell">
@@ -321,6 +326,7 @@ function App() {
           <BrandMark />
           <button className={`rail-button ${assistantWorkspace === "chat" ? "rail-button--active" : ""}`} onClick={() => setAssistantWorkspace("chat")} aria-label="NovaAI" title="NovaAI"><Bot size={18} strokeWidth={1.8} /></button>
           <button className={`rail-button ${assistantWorkspace === "code" && workspaceView === "chat" ? "rail-button--active" : ""}`} onClick={() => { setAssistantWorkspace("code"); setWorkspaceView("chat"); }} aria-label="NovaAI Code" title="NovaAI Code"><Code2 size={18} strokeWidth={1.8} /></button>
+          <button className={`rail-button ${assistantWorkspace === "media" ? "rail-button--active" : ""}`} onClick={() => setAssistantWorkspace("media")} aria-label={t("Crear imágenes y vídeo", "Create images and video")} title={t("Crear imágenes y vídeo", "Create images and video")}><WandSparkles size={18} strokeWidth={1.8} /></button>
           <button className={`rail-button ${assistantWorkspace === "code" && workspaceView === "files" ? "rail-button--active" : ""}`} onClick={() => { setAssistantWorkspace("code"); setWorkspaceView("files"); }} aria-label={t("Explorador de archivos", "File explorer")} title={t("Explorador de archivos", "File explorer")}><FileCode2 size={18} strokeWidth={1.8} /></button>
         </div>
         <div className="activity-rail__bottom"><button className="rail-button" onClick={() => setPreferencesOpen(true)} aria-label={t("Configuración", "Settings")} title={t("Configuración", "Settings")}><Settings2 size={18} strokeWidth={1.8} /></button></div>
@@ -348,21 +354,24 @@ function App() {
           {assistantWorkspace === "code" && project && <div className={`topbar__status ${dirtyCount ? "topbar__status--dirty" : ""}`}>{dirtyCount ? <span className="unsaved-mark" /> : <CircleCheck size={14} strokeWidth={1.8} />}{dirtyCount ? `${dirtyCount} ${t("sin guardar", "unsaved")}` : t("Guardado", "Saved")}</div>}
         </header>
         <div className={`workspace-view ${assistantWorkspace === "chat" ? "" : "workspace-view--hidden"}`}>
-          <NovaChatWorkspace activeWorkspace={assistantWorkspace === "chat"} project={null} projects={[]} openFiles={[]} settings={chatSettings} sidebarOpen={sidebarOpen} onAddProject={() => void chooseFolder()} onSelectProject={(path) => void loadProject(path)} onConfigure={() => setProviderOpen(true)} onSettingsChange={setChatSettings} onFilesChanged={async () => {}} />
+          <NovaChatWorkspace activeWorkspace={assistantWorkspace === "chat"} project={null} projects={[]} openFiles={[]} settings={chatSettings} sidebarOpen={sidebarOpen} onAddProject={() => void chooseFolder()} onSelectProject={(path) => void loadProject(path)} onConfigure={() => setProviderOpen(true)} onSettingsChange={setChatSettings} onFilesChanged={async () => {}} onNotify={notify} />
+        </div>
+        <div className={`workspace-view ${assistantWorkspace === "media" ? "" : "workspace-view--hidden"}`}>
+          <MediaStudio settings={chatSettings} onConfigure={() => setProviderOpen(true)} />
         </div>
         <div className={`workspace-view ${assistantWorkspace === "code" && workspaceView === "chat" ? "" : "workspace-view--hidden"}`}>
-          {project ? <NovaCodeWorkspace activeWorkspace={assistantWorkspace === "code" && workspaceView === "chat"} project={project} projects={projects} openFiles={openFiles} settings={codeSettings} sidebarOpen={sidebarOpen} onAddProject={() => void chooseFolder()} onSelectProject={(path) => void loadProject(path)} onConfigure={() => setProviderOpen(true)} onSettingsChange={setCodeSettings} onFilesChanged={reloadChangedFiles} /> : <section className="welcome-state welcome-state--code"><div className="welcome-state__icon"><Code2 size={22} strokeWidth={1.7} /></div><h1>{t("Empieza con NovaAI Code", "Start with NovaAI Code")}</h1><p>{t("Abre un proyecto para que el agente pueda explorar y trabajar con su cÃ³digo.", "Open a project so the agent can explore and work with its code.")}</p><button className="primary-button primary-button--large" onClick={() => void chooseFolder()}><FolderPlus size={17} />{t("Abrir proyecto", "Open project")}</button></section>}
+          {project ? <NovaCodeWorkspace activeWorkspace={assistantWorkspace === "code" && workspaceView === "chat"} project={project} projects={projects} openFiles={openFiles} settings={codeSettings} sidebarOpen={sidebarOpen} onAddProject={() => void chooseFolder()} onSelectProject={(path) => void loadProject(path)} onConfigure={() => setProviderOpen(true)} onSettingsChange={setCodeSettings} onFilesChanged={reloadChangedFiles} onNotify={notify} /> : <section className="welcome-state welcome-state--code"><div className="welcome-state__icon"><Code2 size={22} strokeWidth={1.7} /></div><h1>{t("Empieza con NovaAI Code", "Start with NovaAI Code")}</h1><p>{t("Abre un proyecto para que el agente pueda explorar y trabajar con su cÃ³digo.", "Open a project so the agent can explore and work with its code.")}</p><button className="primary-button primary-button--large" onClick={() => void chooseFolder()}><FolderPlus size={17} />{t("Abrir proyecto", "Open project")}</button></section>}
         </div>
         <div className={`workspace-view ${assistantWorkspace === "code" && workspaceView === "files" ? "" : "workspace-view--hidden"}`}>
-          {project ? <Suspense fallback={<div className="editor-loading">{t("Preparando editor…", "Preparing editor…")}</div>}><EditorPane files={openFiles} activePath={activePath} saving={saving} onActivate={setActivePath} onChange={updateContent} onClose={closeFile} onSave={(path) => void saveFile(path)} onSaveAll={() => void saveAll()} /></Suspense> : <section className="welcome-state"><div className="welcome-state__icon"><FolderPlus size={22} strokeWidth={1.7} /></div><h1>{t("Crea tu primer proyecto", "Create your first project")}</h1><p>{t("Elige una carpeta existente o crea una nueva desde el selector de Windows.", "Choose an existing folder or create a new one in the Windows picker.")}</p><button className="primary-button primary-button--large" onClick={() => void chooseFolder()}><FolderPlus size={17} strokeWidth={1.8} />{t("Nuevo proyecto", "New project")}</button><small>{t("Después podrás añadir más desde el botón Nuevo proyecto de la izquierda.", "You can add more later from the New project button on the left.")}</small></section>}
+          {project ? <Suspense fallback={<div className="editor-loading">{t("Preparando editor…", "Preparing editor…")}</div>}><EditorPane files={openFiles} activePath={activePath} saving={saving} onActivate={setActivePath} onChange={updateContent} onClose={closeFile} onSave={(path) => void saveFile(path)} onSaveAll={() => void saveAll()} /></Suspense> : <section className="welcome-state"><div className="welcome-state__icon"><FolderPlus size={22} strokeWidth={1.7} /></div><h1>{t("Crea tu primer proyecto", "Create your first project")}</h1><p>{t("Elige una carpeta existente o crea una nueva desde el selector del sistema.", "Choose an existing folder or create a new one in the system picker.")}</p><button className="primary-button primary-button--large" onClick={() => void chooseFolder()}><FolderPlus size={17} strokeWidth={1.8} />{t("Nuevo proyecto", "New project")}</button><small>{t("Después podrás añadir más desde el botón Nuevo proyecto de la izquierda.", "You can add more later from the New project button on the left.")}</small></section>}
         </div>
       </main>
 
       <div className="notice-stack" aria-live="polite">{notices.map((notice) => <div key={notice.id} className={`notice notice--${notice.tone}`}>{notice.message}<button onClick={() => setNotices((current) => current.filter((item) => item.id !== notice.id))} aria-label={t("Cerrar aviso", "Dismiss notification")}><X size={14} /></button></div>)}</div>
       <UpdateBanner />
       {dialog && <ActionDialog request={dialog} busy={dialogBusy} error={dialogError} onCancel={() => !dialogBusy && setDialog(null)} onConfirm={(value) => void confirmDialog(value)} />}
-      {providerOpen && activeSettings && <ProviderPanel projectPath={assistantWorkspace === "chat" ? null : project?.path ?? null} settings={activeSettings} onChange={assistantWorkspace === "chat" ? setChatSettings : setCodeSettings} onClose={() => setProviderOpen(false)} />}
-      {preferencesOpen && <PreferencesPanel projectPath={assistantWorkspace === "chat" ? null : project?.path ?? null} settings={activeSettings} onFilesRestored={(paths) => { void reloadChangedFiles(paths); void refreshTree(true); notify("success", t("Proyecto restaurado", "Project restored")); }} onClose={() => setPreferencesOpen(false)} onOpenProviders={() => { setPreferencesOpen(false); setProviderOpen(true); }} />}
+      {providerOpen && activeSettings && <ProviderPanel projectPath={assistantWorkspace === "code" ? project?.path ?? null : null} settings={activeSettings} onChange={assistantWorkspace === "code" ? setCodeSettings : setChatSettings} onClose={() => setProviderOpen(false)} />}
+      {preferencesOpen && <PreferencesPanel projectPath={assistantWorkspace === "code" ? project?.path ?? null : null} settings={activeSettings} onFilesRestored={(paths) => { void reloadChangedFiles(paths); void refreshTree(true); notify("success", t("Proyecto restaurado", "Project restored")); }} onClose={() => setPreferencesOpen(false)} onOpenProviders={() => { setPreferencesOpen(false); setProviderOpen(true); }} />}
       {firstRunOpen && <FirstRunWizard hasProject={!!project} onAddProject={() => void chooseFolder()} onConfigure={() => setProviderOpen(true)} onClose={() => setFirstRunOpen(false)} />}
     </div>
   );

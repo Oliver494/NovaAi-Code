@@ -200,25 +200,34 @@ fn new_project_path(root: &Path, relative: &str) -> Result<PathBuf, String> {
 
 fn validate_name(name: &str) -> Result<(), String> {
     let trimmed = name.trim();
-    let invalid = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
     if trimmed.is_empty()
         || trimmed == "."
         || trimmed == ".."
-        || trimmed.ends_with('.')
-        || trimmed.ends_with(' ')
         || trimmed
             .chars()
-            .any(|character| invalid.contains(&character) || character.is_control())
+            .any(|character| character == '/' || character.is_control())
     {
-        return Err("El nombre contiene caracteres no permitidos en Windows.".to_string());
+        return Err("El nombre contiene caracteres no permitidos por el sistema.".to_string());
     }
-    let stem = trimmed.split('.').next().unwrap_or("").to_ascii_uppercase();
-    let reserved = [
-        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
-        "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
-    ];
-    if reserved.contains(&stem.as_str()) {
-        return Err("Ese nombre está reservado por Windows.".to_string());
+    #[cfg(target_os = "windows")]
+    {
+        let invalid = ['<', '>', ':', '"', '\\', '|', '?', '*'];
+        if trimmed.ends_with('.')
+            || trimmed.ends_with(' ')
+            || trimmed
+                .chars()
+                .any(|character| invalid.contains(&character))
+        {
+            return Err("El nombre contiene caracteres no permitidos en Windows.".to_string());
+        }
+        let stem = trimmed.split('.').next().unwrap_or("").to_ascii_uppercase();
+        let reserved = [
+            "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
+            "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        ];
+        if reserved.contains(&stem.as_str()) {
+            return Err("Ese nombre está reservado por Windows.".to_string());
+        }
     }
     Ok(())
 }
@@ -1363,8 +1372,12 @@ pub fn run() {
             ai::set_provider_key,
             ai::delete_provider_key,
             ai::list_ai_models,
+            ai::generate_nvidia_media,
+            ai::search_web,
             ai::list_local_model_catalog,
             ai::download_local_model,
+            ai::download_comfyui_model,
+            ai::open_comfyui_desktop,
             ai::test_ai_provider,
             ai::chat_ai,
             ai::cancel_ai_chat,
@@ -1444,8 +1457,13 @@ mod tests {
 
     #[test]
     fn rejects_windows_reserved_and_unsafe_names() {
-        assert!(validate_name("CON").is_err());
-        assert!(validate_name("bad?.txt").is_err());
+        if cfg!(target_os = "windows") {
+            assert!(validate_name("CON").is_err());
+            assert!(validate_name("bad?.txt").is_err());
+        } else {
+            assert!(validate_name("CON").is_ok());
+            assert!(validate_name("bad?.txt").is_ok());
+        }
         assert!(reject_unsafe_components(Path::new("../escape.txt")).is_err());
         assert!(validate_name("safe-file.ts").is_ok());
     }

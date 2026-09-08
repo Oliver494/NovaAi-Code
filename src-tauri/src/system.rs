@@ -26,6 +26,7 @@ pub(crate) struct HardwareInfo {
     recommendations: Vec<ModelFit>,
 }
 
+#[cfg(target_os = "windows")]
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
 struct VideoController {
@@ -33,10 +34,8 @@ struct VideoController {
     adapter_ram: Option<u64>,
 }
 
-async fn windows_gpu() -> (Option<String>, Option<u64>) {
-    if !cfg!(target_os = "windows") {
-        return (None, None);
-    }
+#[cfg(target_os = "windows")]
+async fn detect_gpu() -> (Option<String>, Option<u64>) {
     let mut command = Command::new("powershell.exe");
     command.kill_on_drop(true).args([
         "-NoLogo",
@@ -66,6 +65,58 @@ async fn windows_gpu() -> (Option<String>, Option<u64>) {
         .map(str::to_string);
     let vram = controllers.iter().filter_map(|item| item.adapter_ram).max();
     (name, vram)
+}
+
+#[cfg(target_os = "linux")]
+async fn detect_gpu() -> (Option<String>, Option<u64>) {
+    let mut command = Command::new("nvidia-smi");
+    command.kill_on_drop(true).args([
+        "--query-gpu=name,memory.total",
+        "--format=csv,noheader,nounits",
+    ]);
+    if let Ok(Ok(output)) = timeout(Duration::from_secs(4), command.output()).await {
+        if output.status.success() {
+            if let Some(line) = String::from_utf8_lossy(&output.stdout).lines().next() {
+                let mut values = line.split(',').map(str::trim);
+                let name = values
+                    .next()
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string);
+                let vram = values
+                    .next()
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .map(|mib| mib * 1024 * 1024);
+                if name.is_some() {
+                    return (name, vram);
+                }
+            }
+        }
+    }
+
+    let mut command = Command::new("lspci");
+    command.kill_on_drop(true);
+    let Ok(Ok(output)) = timeout(Duration::from_secs(4), command.output()).await else {
+        return (None, None);
+    };
+    if !output.status.success() {
+        return (None, None);
+    }
+    let name = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find(|line| {
+            let lower = line.to_ascii_lowercase();
+            lower.contains("vga compatible controller") || lower.contains("3d controller")
+        })
+        .and_then(|line| {
+            line.split_once(": ")
+                .map(|(_, value)| value.trim().to_string())
+        });
+    (name, None)
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+async fn detect_gpu() -> (Option<String>, Option<u64>) {
+    (None, None)
 }
 
 fn model_fits(ram: u64, vram: Option<u64>) -> Vec<ModelFit> {
@@ -108,7 +159,7 @@ pub(crate) async fn inspect_hardware(root: Option<String>) -> Result<HardwareInf
         .filter(|disk| project_path.is_none_or(|path| path.starts_with(disk.mount_point())))
         .max_by_key(|disk| disk.mount_point().as_os_str().len())
         .map(|disk| disk.available_space());
-    let (gpu, vram_bytes) = windows_gpu().await;
+    let (gpu, vram_bytes) = detect_gpu().await;
     let ram_bytes = system.total_memory();
     Ok(HardwareInfo {
         cpu: system

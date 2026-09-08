@@ -17,12 +17,20 @@ async function translate(value, language) {
   return parsed.translation.trim();
 }
 
+function save() {
+  const output = `// Generated from the complete UI string catalog. Keep keys in English.\nimport type { AppLanguage } from "../services/preferences";\n\nexport const generatedTranslations: Partial<Record<AppLanguage, Record<string, string>>> = ${JSON.stringify(generatedTranslations, null, 2)};\n`;
+  fs.writeFileSync(path.resolve("src/locales/generated.ts"), output, "utf8");
+}
+
 for (const [code, name] of Object.entries(languages)) {
   const catalog = { ...(generatedTranslations[code] ?? {}) };
   const missing = [...keys].filter((key) => !catalog[key]?.trim());
-  for (const key of missing) catalog[key] = await translate(key, name);
+  for (const key of missing) {
+    catalog[key] = await translate(key, name);
+    generatedTranslations[code] = Object.fromEntries(Object.entries(catalog).sort(([left], [right]) => left.localeCompare(right)));
+    save();
+  }
   generatedTranslations[code] = Object.fromEntries(Object.entries(catalog).sort(([left], [right]) => left.localeCompare(right)));
-  const output = `// Generated from the complete UI string catalog. Keep keys in English.\nimport type { AppLanguage } from "../services/preferences";\n\nexport const generatedTranslations: Partial<Record<AppLanguage, Record<string, string>>> = ${JSON.stringify(generatedTranslations, null, 2)};\n`;
-  fs.writeFileSync(path.resolve("src/locales/generated.ts"), output, "utf8");
+  save();
   console.log(`${code}: ${missing.length}`);
 }

@@ -29,7 +29,10 @@ export type ProviderId = "ollama" | "lm_studio" | "open_ai" | "anthropic" | "gem
 export type ReasoningEffort = "low" | "medium" | "high";
 
 export type ProviderConfig = {
+  configId: string;
   provider: ProviderId;
+  displayName: string;
+  logoDataUrl: string | null;
   endpoint: string;
   model: string;
   reasoningEffort: ReasoningEffort;
@@ -42,6 +45,7 @@ export type ProviderConfig = {
 
 export type AiSettings = {
   activeProvider: ProviderId | null;
+  activeConfigId: string | null;
   providers: ProviderConfig[];
 };
 
@@ -62,6 +66,10 @@ export type LocalModelCatalogItem = {
   ollamaId: string;
   lmStudioId: string;
   recommended: boolean;
+  category: "chat" | "code" | "vision" | "image" | "video";
+  capabilities: string[];
+  runtimes: string[];
+  guideUrl: string | null;
 };
 
 export type LocalModelDownloadEvent =
@@ -105,7 +113,13 @@ export type ChatMessage = {
   uploads?: Omit<ChatUpload, "data">[];
   contextReferences?: ContextReference[];
   appliedChanges?: AppliedChange[];
+  generatedMedia?: MediaGenerationResult;
+  webSearchAttempted?: boolean;
+  webSources?: WebSearchSource[];
 };
+
+export type WebSearchSource = { title: string; url: string; snippet: string };
+export type WebSearchResult = { query: string; sources: WebSearchSource[] };
 
 export type ContextReference = { path: string; startLine: number; endLine: number; truncated: boolean };
 export type AppliedChange = { type: "write" | "mkdir" | "rename" | "delete"; path: string; newPath?: string; before?: string; after?: string; truncated?: boolean };
@@ -121,7 +135,7 @@ export type Conversation = {
   archived: boolean;
   archivedAt: number | null;
   lastError?: boolean;
-  assistantMode: "chat" | "code";
+  assistantMode: ConversationMode;
   approvalMode: "ask" | "auto" | "full";
   externalFolders: ExternalFolderGrant[];
   agentTask?: AgentTask;
@@ -132,7 +146,11 @@ export type Conversation = {
   updatedAt: number;
 };
 
-export type AssistantWorkspace = "chat" | "code";
+export type ConversationMode = "chat" | "code";
+export type AssistantWorkspace = ConversationMode | "media";
+
+export type MediaMode = "image" | "video";
+export type MediaGenerationResult = { mediaType: MediaMode; dataUrl: string; seed: number | null };
 
 export type AgentState = "idle" | "analyzing" | "planning" | "awaiting_approval" | "executing" | "testing" | "correcting" | "completed" | "cancelled" | "failed" | "interrupted";
 export type AgentStep = { id: string; label: string; status: "pending" | "in_progress" | "completed" | "failed"; detail?: string };

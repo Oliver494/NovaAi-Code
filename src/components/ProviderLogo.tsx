@@ -9,7 +9,7 @@ import kimiLogo from "../assets/providers/kimi.svg";
 import { Plug } from "lucide-react";
 import type { ProviderId } from "../types";
 
-type Props = { provider: ProviderId; size?: "small" | "medium" | "large"; className?: string };
+type Props = { provider: ProviderId; size?: "small" | "medium" | "large"; className?: string; customLogo?: string | null; label?: string };
 
 const logos: Partial<Record<ProviderId, string>> = {
   ollama: ollamaLogo,
@@ -34,9 +34,9 @@ const names: Record<ProviderId, string> = {
   custom: "Personalizado",
 };
 
-export function ProviderLogo({ provider, size = "medium", className = "" }: Props) {
-  const logo = logos[provider];
+export function ProviderLogo({ provider, size = "medium", className = "", customLogo, label }: Props) {
+  const logo = provider === "custom" ? customLogo : logos[provider];
   return <i className={`provider-logo provider-logo--${provider} provider-logo--${size} ${className}`} aria-hidden="true">
-    {logo ? <img src={logo} alt="" title={names[provider]} draggable={false} /> : <Plug size={size === "large" ? 24 : size === "small" ? 15 : 19} />}
+    {logo ? <img src={logo} alt="" title={label || names[provider]} draggable={false} /> : <Plug size={size === "large" ? 24 : size === "small" ? 15 : 19} />}
   </i>;
 }

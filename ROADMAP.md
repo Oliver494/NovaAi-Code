@@ -13,6 +13,8 @@
 - [ ] Human-reviewed translations
 - [ ] Signed Windows installer
 - [ ] Clean Windows VM test matrix
+- [x] Kali/Debian `.deb` and Linux AppImage build pipeline
+- [ ] Clean Kali Linux VM test matrix
 
 ## Later
 
@@ -20,6 +22,6 @@
 - Semantic context search beyond filename relevance
 - Model-specific hardware benchmarks beyond approximate fit recommendations
 - Extensible tools, MCP, and plugins
-- macOS and Linux support after Windows stability
+- macOS support after Windows and Linux stability
 
 The roadmap is directional and does not promise dates.

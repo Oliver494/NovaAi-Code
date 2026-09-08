@@ -162,9 +162,6 @@ pub async fn list_models(
             } else {
                 raw.to_string()
             };
-            if config.provider == ProviderId::Nvidia && !nvidia::is_chat_model(&id) {
-                return None;
-            }
             if config.provider == ProviderId::Gemini {
                 let methods = item
                     .get("supportedGenerationMethods")
@@ -789,8 +786,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn integration_returns_the_complete_sorted_nvidia_catalog() {
-        let endpoint = mock_server("200 OK", r#"{"data":[{"id":"z-ai/glm-5.2"},{"id":"poolside/laguna-xs-2.1"},{"id":"z-ai/glm-5.2"},{"id":"01-ai/yi-large"}]}"#).await;
+    async fn integration_keeps_every_model_returned_by_nvidia() {
+        let endpoint = mock_server("200 OK", r#"{"data":[{"id":"z-ai/glm-5.2"},{"id":"nvidia/llama-3.1-nemoguard-8b-content-safety"},{"id":"nvidia/nemotron-3-embed-1b"},{"id":"poolside/laguna-xs-2.1"},{"id":"z-ai/glm-5.2"},{"id":"01-ai/yi-large"}]}"#).await;
         let mut config = ProviderConfig::defaults(ProviderId::Nvidia);
         config.endpoint = endpoint;
         let models = list_models(&Client::new(), &config, Some("nvapi-test-never-logged"))
@@ -801,7 +798,13 @@ mod tests {
                 .iter()
                 .map(|model| model.id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["01-ai/yi-large", "poolside/laguna-xs-2.1", "z-ai/glm-5.2"]
+            vec![
+                "01-ai/yi-large",
+                "nvidia/llama-3.1-nemoguard-8b-content-safety",
+                "nvidia/nemotron-3-embed-1b",
+                "poolside/laguna-xs-2.1",
+                "z-ai/glm-5.2",
+            ]
         );
     }
 

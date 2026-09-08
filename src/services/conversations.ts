@@ -1,4 +1,4 @@
-import type { AssistantWorkspace, Conversation } from "../types";
+import type { Conversation, ConversationMode } from "../types";
 
 const LEGACY_PREFIX = "novaai-code:conversations:v1:";
 const PREFIX = "novaai-code:conversations:v2:";
@@ -7,7 +7,7 @@ function scope(projectPath: string | null) {
   return encodeURIComponent((projectPath || "global").toLowerCase());
 }
 
-function storageKey(mode: AssistantWorkspace, projectPath: string | null) {
+function storageKey(mode: ConversationMode, projectPath: string | null) {
   return `${PREFIX}${mode}:${mode === "chat" ? "global" : scope(projectPath)}`;
 }
 
@@ -64,7 +64,7 @@ function mergeUnique(current: Conversation[], incoming: Conversation[]) {
  * Loads one isolated product workspace. The first read also imports the old v1
  * store, but never removes it: a failed migration can therefore be retried.
  */
-export function loadConversations(projectPath: string | null, mode: AssistantWorkspace = projectPath ? "code" : "chat"): Conversation[] {
+export function loadConversations(projectPath: string | null, mode: ConversationMode = projectPath ? "code" : "chat"): Conversation[] {
   try {
     const key = storageKey(mode, projectPath);
     const current = parseStored(key)
@@ -99,7 +99,7 @@ export function loadConversations(projectPath: string | null, mode: AssistantWor
   }
 }
 
-export function saveConversations(projectPath: string | null, conversations: Conversation[], mode: AssistantWorkspace = projectPath ? "code" : "chat"): ConversationSaveResult {
+export function saveConversations(projectPath: string | null, conversations: Conversation[], mode: ConversationMode = projectPath ? "code" : "chat"): ConversationSaveResult {
   try {
     const isolated = conversations
       .filter((item) => item.assistantMode === mode && sameProject(item.projectPath, mode === "chat" ? null : projectPath))
@@ -111,7 +111,7 @@ export function saveConversations(projectPath: string | null, conversations: Con
   }
 }
 
-export function createConversation(projectPath: string | null, mode: AssistantWorkspace = projectPath ? "code" : "chat"): Conversation {
+export function createConversation(projectPath: string | null, mode: ConversationMode = projectPath ? "code" : "chat"): Conversation {
   const now = Date.now();
   return {
     id: crypto.randomUUID(),

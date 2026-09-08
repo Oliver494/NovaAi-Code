@@ -1,12 +1,29 @@
 # Getting started
 
-1. Install NovaAI Code with the Windows installer.
+1. Install NovaAI Code with the Windows `.exe`, the Linux `.deb`, or the AppImage.
 2. Add a project folder. Nova restricts file operations to this folder and ignores generated or protected directories.
 3. Open **Settings → Providers** and choose Ollama, LM Studio, or a cloud API.
 4. Use **Test connection** before opening a chat.
 5. Start with **Ask for approval** until you are comfortable with the proposed diffs and recovery workflow.
 
-Nova stores conversations per project. Provider keys are stored through the Windows credential store, not in project files or browser local storage.
+Nova stores conversations per project. Provider keys are stored through the operating-system credential store, not in project files or browser local storage. Linux uses the Secret Service keyring; minimal Kali installations may need `gnome-keyring`.
+
+## Kali Linux
+
+Install the Debian package with:
+
+```bash
+sudo apt install ./NovaAI*.deb
+```
+
+Alternatively, make the AppImage executable and launch it:
+
+```bash
+chmod +x ./NovaAI*.AppImage
+./NovaAI*.AppImage
+```
+
+For local development, install the Tauri packages shown in the Linux section of the README. Nova uses `python3` and native Linux command names when the coding agent runs approved project checks.
 
 ## Local providers
 

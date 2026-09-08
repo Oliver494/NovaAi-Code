@@ -1,7 +1,7 @@
 {
   "name": "novaai-code",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
@@ -17,6 +17,7 @@
     "test:all": "npm run test:frontend && cargo test --manifest-path src-tauri/Cargo.toml",
     "check": "npm run test:all && npm run build && cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
     "preview": "vite preview",
+    "build:linux": "tauri build --bundles deb,appimage",
     "tauri": "tauri"
   },
   "dependencies": {

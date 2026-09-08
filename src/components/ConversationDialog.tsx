@@ -1,5 +1,6 @@
 import { AlertTriangle, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Conversation } from "../types";
 import { usePreferences } from "../services/preferences";
 
@@ -37,7 +38,7 @@ export function ConversationDialog({ kind, conversation, projectName, busy = fal
     onConfirm(kind === "rename" ? title.trim().slice(0, 80) : undefined);
   }
 
-  return <div className="conversation-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+  return createPortal(<div className="conversation-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="conversation-dialog" role="dialog" aria-modal="true" aria-labelledby="conversation-dialog-title">
       <header>
         <div className={destructive ? "is-danger" : ""}>{destructive && <AlertTriangle size={16} />}<strong id="conversation-dialog-title">{heading}</strong></div>
@@ -45,7 +46,7 @@ export function ConversationDialog({ kind, conversation, projectName, busy = fal
       </header>
       {kind === "rename" ? <div className="conversation-dialog__body">
         <label htmlFor="conversation-title">{t("Nombre de la conversación", "Conversation name")}</label>
-        <input ref={inputRef} id="conversation-title" value={title} maxLength={80} onChange={(event) => setTitle(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") confirm(); }} />
+        <input ref={inputRef} id="conversation-title" value={title} maxLength={80} onChange={(event) => setTitle(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); confirm(); } }} />
         <small>{title.length}/80</small>
       </div> : <div className="conversation-dialog__body">
         <p className="conversation-dialog__name">{conversation.title}</p>
@@ -55,5 +56,5 @@ export function ConversationDialog({ kind, conversation, projectName, busy = fal
       </div>}
       <footer><button className="secondary-button" onClick={onClose}>{t("Cancelar", "Cancel")}</button><button className={destructive ? "danger-button" : "primary-button"} disabled={!valid || busy || submitting} onClick={confirm}>{confirmLabel}</button></footer>
     </section>
-  </div>;
+  </div>, document.body);
 }

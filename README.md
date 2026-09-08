@@ -1,7 +1,7 @@
 # NovaAI Code
 
 <p align="center">
-  <strong>A local-first AI coding assistant for Windows that explains what is happening.</strong>
+  <strong>A local-first AI coding assistant for Windows and Linux that explains what is happening.</strong>
 </p>
 
 <p align="center">
@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Oliver494/novaai-code/releases/latest">Download for Windows</a> ·
+  <a href="https://github.com/Oliver494/novaai-code/releases/latest">Download for Windows or Linux</a> ·
   <a href="README.es.md">Español</a> ·
   <a href="ROADMAP.md">Roadmap</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
@@ -35,11 +35,15 @@ There is no NovaAI Code account, hosted project copy, or required subscription. 
 
 ## Download and install
 
-Download the latest Windows installer from [Releases](https://github.com/Oliver494/novaai-code/releases/latest), run it, and open NovaAI Code.
+Download the package for your operating system from [Releases](https://github.com/Oliver494/novaai-code/releases/latest):
+
+- **Windows:** run the x64 `.exe` installer.
+- **Kali Linux / Debian / Ubuntu:** download the x86_64 `.deb` and install it with `sudo apt install ./NovaAI*.deb` from its download folder.
+- **Other x86_64 Linux distributions:** download the `.AppImage`, run `chmod +x ./NovaAI*.AppImage`, then open it with `./NovaAI*.AppImage`.
 
 End users do **not** need Node.js, Rust, Git, Ollama, or LM Studio to install the app. You only need Ollama or LM Studio if you want to use local models.
 
-Windows may show a SmartScreen warning while the project does not yet have a trusted code-signing certificate. Always download installers from this repository's official Releases page.
+Windows may show a SmartScreen warning while the project does not yet have a trusted code-signing certificate. Linux packages are also currently unsigned. Always download packages from this repository's official Releases page.
 
 ## Quick start
 
@@ -96,7 +100,7 @@ Provider availability depends on your own installation, account, billing, model 
 
 NovaAI Code is intentionally conservative about file access and commands:
 
-- It rejects absolute paths, `..` traversal, unsafe Windows names, symlink traversal, ignored folders, shell operators, and unrestricted system commands.
+- It rejects absolute paths, `..` traversal, unsafe platform-specific names, symlink traversal, ignored folders, shell operators, and unrestricted system commands.
 - Agent changes stay inside the open project or an external folder you explicitly authorize.
 - API keys are saved through the operating-system credential store and are not displayed after saving.
 - Cloud providers receive only the messages, attachments, and project context included in the request.
@@ -109,7 +113,8 @@ Read [SECURITY.md](SECURITY.md) before enabling agent permissions and [PRIVACY.m
 
 - Node.js 22 or newer
 - Rust stable
-- Microsoft C++ Build Tools and the WebView2 requirements for Tauri 2
+- Windows: Microsoft C++ Build Tools and the WebView2 requirements for Tauri 2
+- Linux: WebKitGTK 4.1 and the native Tauri build dependencies listed below
 
 ### Run locally
 
@@ -129,6 +134,19 @@ npm run check
 ```bash
 npm run tauri -- build
 ```
+
+### Build Linux packages (Kali / Debian / Ubuntu)
+
+```bash
+sudo apt update
+sudo apt install -y build-essential curl wget file libwebkit2gtk-4.1-dev \
+  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf xdg-utils
+npm ci
+npm run test:all
+npm run build:linux
+```
+
+The generated packages are placed in `src-tauri/target/release/bundle/deb/` and `src-tauri/target/release/bundle/appimage/`. On minimal Kali installations, install and start `gnome-keyring` so Nova can store API keys through the Linux Secret Service.
 
 See [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/QA.md](docs/QA.md), and [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for more detail.
 

@@ -1,5 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { AiChatEvent, AiSettings, ChatUpload, Diagnostic, ExternalFolderGrant, ProviderConfig, ProviderId, ProviderTestResult, ModelInfo, LocalModelCatalogItem, LocalModelDownloadEvent } from "../types";
+import type { AiChatEvent, AiSettings, ChatUpload, Diagnostic, ExternalFolderGrant, MediaGenerationResult, ProviderConfig, ProviderId, ProviderTestResult, ModelInfo, LocalModelCatalogItem, LocalModelDownloadEvent, WebSearchResult } from "../types";
 
 export const providerMeta: Record<ProviderId, { name: string; type: "local" | "cloud"; defaultEndpoint: string; requiresKey: boolean }> = {
   ollama: { name: "Ollama", type: "local", defaultEndpoint: "http://127.0.0.1:11434", requiresKey: false },
@@ -13,11 +13,21 @@ export const providerMeta: Record<ProviderId, { name: string; type: "local" | "c
   custom: { name: "Personalizado", type: "cloud", defaultEndpoint: "http://127.0.0.1:8000/v1", requiresKey: false },
 };
 
+export const providerDisplayName = (config: ProviderConfig | null | undefined) =>
+  config?.displayName?.trim() || (config ? providerMeta[config.provider].name : "");
+
+export const activeProviderConfig = (settings: AiSettings | null | undefined) => {
+  if (!settings) return null;
+  return settings.providers.find((item) => item.configId === settings.activeConfigId)
+    ?? settings.providers.find((item) => item.provider === settings.activeProvider)
+    ?? null;
+};
+
 export const ai = {
   settings: (projectPath: string | null) => invoke<AiSettings>("get_ai_settings", { projectPath }),
   saveSettings: (projectPath: string | null, settings: AiSettings) => invoke<AiSettings>("save_ai_settings", { projectPath, settings }),
-  setKey: (provider: ProviderId, projectPath: string | null, apiKey: string) => invoke<void>("set_provider_key", { provider, projectPath, apiKey }),
-  deleteKey: (provider: ProviderId, projectPath: string | null) => invoke<void>("delete_provider_key", { provider, projectPath }),
+  setKey: (config: ProviderConfig, projectPath: string | null, apiKey: string) => invoke<void>("set_provider_key", { provider: config.provider, configId: config.configId, projectPath, apiKey }),
+  deleteKey: (config: ProviderConfig, projectPath: string | null) => invoke<void>("delete_provider_key", { provider: config.provider, configId: config.configId, projectPath }),
   models: (config: ProviderConfig, projectPath: string | null) => invoke<ModelInfo[]>("list_ai_models", { config, projectPath }),
   localCatalog: () => invoke<LocalModelCatalogItem[]>("list_local_model_catalog"),
   downloadLocalModel: (config: ProviderConfig, modelId: string, onEvent: (event: LocalModelDownloadEvent) => void) => {
@@ -25,7 +35,15 @@ export const ai = {
     channel.onmessage = onEvent;
     return invoke<void>("download_local_model", { config, modelId, onEvent: channel });
   },
+  downloadComfyUiModel: (modelId: string, onEvent: (event: LocalModelDownloadEvent) => void) => {
+    const channel = new Channel<LocalModelDownloadEvent>();
+    channel.onmessage = onEvent;
+    return invoke<void>("download_comfyui_model", { modelId, onEvent: channel });
+  },
+  openComfyUi: () => invoke<void>("open_comfyui_desktop"),
   test: (config: ProviderConfig, projectPath: string | null) => invoke<ProviderTestResult>("test_ai_provider", { config, projectPath }),
+  generateNvidiaMedia: (request: { requestId: string; config: ProviderConfig; mode: "image" | "video"; model: string; prompt: string; imageData?: string | null }) => invoke<MediaGenerationResult>("generate_nvidia_media", { request }),
+  searchWeb: (query: string) => invoke<WebSearchResult>("search_web", { request: { query, maxResults: 4 } }),
   cancel: (requestId: string) => invoke<boolean>("cancel_ai_chat", { requestId }),
   chat: (request: { requestId: string; projectPath: string | null; config: ProviderConfig; messages: { role: "system" | "user" | "assistant"; content: string }[]; attachments: string[]; uploads: Pick<ChatUpload, "name" | "mimeType" | "kind" | "data">[]; externalFolders: ExternalFolderGrant[]; workspaceAccess: boolean; canEdit: boolean; codeMode: boolean }, onEvent: (event: AiChatEvent) => void) => {
     const channel = new Channel<AiChatEvent>();

@@ -34,8 +34,26 @@ fn settings_path(app: &AppHandle, project_path: Option<&str>) -> Result<PathBuf,
     Ok(directory.join(format!("{}.json", scope_id(project_path)?)))
 }
 
-pub fn secret_user(provider: ProviderId) -> String {
-    format!("global:{}", provider.as_str())
+pub fn secret_user(provider: ProviderId, config_id: &str) -> String {
+    if provider == ProviderId::Custom {
+        let safe_id: String = config_id
+            .chars()
+            .filter(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | ':')
+            })
+            .take(96)
+            .collect();
+        format!(
+            "global:custom:{}",
+            if safe_id.is_empty() {
+                "default"
+            } else {
+                &safe_id
+            }
+        )
+    } else {
+        format!("global:{}", provider.as_str())
+    }
 }
 
 pub fn legacy_secret_user(
@@ -68,13 +86,18 @@ fn merge_defaults(settings: &mut AiSettings) {
         ProviderId::Nvidia,
         ProviderId::Zai,
         ProviderId::Kimi,
-        ProviderId::Custom,
     ] {
         if let Some(item) = settings
             .providers
             .iter_mut()
             .find(|item| item.provider == provider)
         {
+            if item.config_id.trim().is_empty() {
+                item.config_id = provider.as_str().to_string();
+            }
+            if item.display_name.trim().is_empty() {
+                item.display_name = provider.display_name().to_string();
+            }
             // Migra solamente los valores que eran los valores predeterminados antiguos.
             // Un valor distinto se considera una elección explícita del usuario.
             let legacy_timeout = if provider.is_local() { 90 } else { 30 };
@@ -85,6 +108,35 @@ fn merge_defaults(settings: &mut AiSettings) {
         } else {
             settings.providers.push(ProviderConfig::defaults(provider));
         }
+    }
+
+    let mut custom_index = 0usize;
+    for item in settings
+        .providers
+        .iter_mut()
+        .filter(|item| item.provider == ProviderId::Custom)
+    {
+        if item.config_id.trim().is_empty() || item.config_id == "custom" {
+            item.config_id = if custom_index == 0 {
+                "custom:default".to_string()
+            } else {
+                format!("custom:migrated-{custom_index}")
+            };
+        }
+        if item.display_name.trim().is_empty() || item.display_name == "Proveedor personalizado" {
+            item.display_name = "Mi proveedor".to_string();
+        }
+        custom_index += 1;
+    }
+
+    if settings.active_config_id.is_none() {
+        settings.active_config_id = settings.active_provider.and_then(|provider| {
+            settings
+                .providers
+                .iter()
+                .find(|item| item.provider == provider)
+                .map(|item| item.config_id.clone())
+        });
     }
 }
 
@@ -113,10 +165,14 @@ mod tests {
 
     #[test]
     fn provider_keys_use_a_stable_global_credential() {
-        assert_eq!(secret_user(ProviderId::Nvidia), "global:nvidia");
+        assert_eq!(secret_user(ProviderId::Nvidia, "nvidia"), "global:nvidia");
         assert_eq!(
-            secret_user(ProviderId::Nvidia),
-            secret_user(ProviderId::Nvidia)
+            secret_user(ProviderId::Nvidia, "anything"),
+            secret_user(ProviderId::Nvidia, "nvidia")
+        );
+        assert_ne!(
+            secret_user(ProviderId::Custom, "custom:one"),
+            secret_user(ProviderId::Custom, "custom:two")
         );
     }
 
@@ -124,6 +180,7 @@ mod tests {
     fn migrates_only_the_old_default_start_timeout() {
         let mut settings = AiSettings {
             active_provider: None,
+            active_config_id: None,
             providers: vec![ProviderConfig::defaults(ProviderId::Nvidia)],
         };
         settings.providers[0].first_response_timeout_secs = 30;
@@ -140,6 +197,7 @@ mod tests {
 
         let mut custom = AiSettings {
             active_provider: None,
+            active_config_id: None,
             providers: vec![ProviderConfig::defaults(ProviderId::Nvidia)],
         };
         custom.providers[0].first_response_timeout_secs = 45;
@@ -153,5 +211,31 @@ mod tests {
                 .first_response_timeout_secs,
             45
         );
+    }
+
+    #[test]
+    fn migrates_multiple_legacy_custom_providers_without_merging_them() {
+        let mut first = ProviderConfig::defaults(ProviderId::Custom);
+        first.display_name = "DeepSeek".into();
+        let mut second = ProviderConfig::defaults(ProviderId::Custom);
+        second.display_name = "OpenRouter".into();
+        let mut settings = AiSettings {
+            active_provider: Some(ProviderId::Custom),
+            active_config_id: None,
+            providers: vec![first, second],
+        };
+
+        merge_defaults(&mut settings);
+
+        let custom: Vec<_> = settings
+            .providers
+            .iter()
+            .filter(|item| item.provider == ProviderId::Custom)
+            .collect();
+        assert_eq!(custom.len(), 2);
+        assert_ne!(custom[0].config_id, custom[1].config_id);
+        assert_eq!(custom[0].display_name, "DeepSeek");
+        assert_eq!(custom[1].display_name, "OpenRouter");
+        assert_eq!(settings.active_config_id.as_deref(), Some("custom:default"));
     }
 }
