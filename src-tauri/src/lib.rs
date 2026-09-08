@@ -1393,7 +1393,8 @@ pub fn run() {
             git::git_discard_changes,
             system::inspect_hardware,
             system::list_computer_roots,
-            updates::check_for_updates
+            updates::check_for_updates,
+            updates::install_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

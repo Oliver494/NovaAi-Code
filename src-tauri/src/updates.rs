@@ -3,6 +3,7 @@ use reqwest::{redirect::Policy, Client, StatusCode};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{fs::File, io::Write, process::Command};
 use tauri::AppHandle;
 use url::Url;
 
@@ -11,6 +12,7 @@ const RELEASES_API: &str =
 const RELEASE_PATH_PREFIX: &str = "/Oliver494/novaai-code/releases/";
 const DOWNLOAD_PATH_PREFIX: &str = "/Oliver494/novaai-code/releases/download/";
 const MAX_RESPONSE_BYTES: usize = 512 * 1024;
+const MAX_INSTALLER_BYTES: u64 = 1024 * 1024 * 1024;
 
 #[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -305,6 +307,83 @@ async fn fetch_releases(
 pub async fn check_for_updates(app: AppHandle, channel: UpdateChannel) -> UpdateCheckResult {
     let installed = app.package_info().version.to_string();
     fetch_releases(RELEASES_API, &installed, channel, Duration::from_secs(8)).await
+}
+
+/// Downloads an installer from the official GitHub release and starts it.
+/// This command is deliberately Windows-only: Linux packages are managed by
+/// the distribution, while the Windows NSIS installer can replace the app
+/// after NovaAI Code exits.
+#[tauri::command]
+pub async fn install_update(app: AppHandle, asset_url: String) -> Result<(), String> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        let _ = asset_url;
+        return Err("La instalación integrada solo está disponible en Windows.".into());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if !is_official_download_url(&asset_url)
+            || !asset_url.to_ascii_lowercase().ends_with(".exe")
+        {
+            return Err("El instalador no pertenece a un release oficial de NovaAI Code.".into());
+        }
+
+        let client = Client::builder()
+            .connect_timeout(Duration::from_secs(8))
+            .timeout(Duration::from_secs(180))
+            // GitHub redirects release assets to its signed download host.
+            .redirect(Policy::limited(5))
+            .user_agent("NovaAI-Code-Updater")
+            .build()
+            .map_err(|_| "No se pudo preparar la descarga de la actualización.".to_string())?;
+        let response = client.get(&asset_url).send().await.map_err(|_| {
+            "No se pudo descargar la actualización. Comprueba tu conexión.".to_string()
+        })?;
+        if !response.status().is_success() {
+            return Err("GitHub no pudo entregar el instalador de la actualización.".into());
+        }
+        if response
+            .content_length()
+            .is_some_and(|size| size > MAX_INSTALLER_BYTES)
+        {
+            return Err("El instalador de la actualización es demasiado grande.".into());
+        }
+
+        let target = std::env::temp_dir().join(format!(
+            "NovaAI-Code-Update-{}-{}.exe",
+            app.package_info().version,
+            now_millis()
+        ));
+        let mut file = File::create(&target)
+            .map_err(|_| "No se pudo preparar el instalador temporal.".to_string())?;
+        let mut received = 0_u64;
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk =
+                chunk.map_err(|_| "La descarga de la actualización se interrumpió.".to_string())?;
+            received += chunk.len() as u64;
+            if received > MAX_INSTALLER_BYTES {
+                let _ = std::fs::remove_file(&target);
+                return Err("El instalador de la actualización es demasiado grande.".into());
+            }
+            if file.write_all(&chunk).is_err() {
+                let _ = std::fs::remove_file(&target);
+                return Err("No se pudo guardar el instalador de la actualización.".into());
+            }
+        }
+        file.sync_all()
+            .map_err(|_| "No se pudo finalizar el instalador de la actualización.".to_string())?;
+        drop(file);
+
+        Command::new(&target)
+            .arg("/S")
+            .spawn()
+            .map_err(|_| "No se pudo iniciar el instalador de la actualización.".to_string())?;
+        app.exit(0);
+        Ok(())
+    }
 }
 
 #[cfg(test)]

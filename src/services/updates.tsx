@@ -8,7 +8,7 @@ export type UpdateStatus = "idle" | "checking" | "up_to_date" | "update_availabl
 export type UpdateRelease = { version: string; tag: string; title: string; notes: string; url: string; assetUrl: string | null; prerelease: boolean; publishedAt: string | null };
 export type UpdateCheckResult = { status: Exclude<UpdateStatus, "idle" | "checking">; installedVersion: string; checkedAt: number; message: string; release: UpdateRelease | null };
 type StoredUpdates = { automatic: boolean; channel: UpdateChannel; lastResult: UpdateCheckResult | null; snoozedVersion: string | null; snoozedUntil: number };
-type UpdateContextValue = StoredUpdates & { installedVersion: string; status: UpdateStatus; bannerVisible: boolean; setAutomatic: (enabled: boolean) => void; setChannel: (channel: UpdateChannel) => void; check: () => Promise<void>; closeBanner: () => void; remindLater: () => void; openRelease: () => Promise<void> };
+type UpdateContextValue = StoredUpdates & { installedVersion: string; status: UpdateStatus; bannerVisible: boolean; installing: boolean; installError: string | null; setAutomatic: (enabled: boolean) => void; setChannel: (channel: UpdateChannel) => void; check: () => Promise<void>; closeBanner: () => void; remindLater: () => void; openRelease: () => Promise<void>; install: () => Promise<void> };
 
 const STORAGE_KEY = "novaai-code:updates";
 const TWELVE_HOURS = 12 * 60 * 60 * 1_000;
@@ -42,6 +42,8 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const [installedVersion, setInstalledVersion] = useState(stored.lastResult?.installedVersion ?? "…");
   const [status, setStatus] = useState<UpdateStatus>(stored.lastResult?.status ?? "idle");
   const [bannerClosed, setBannerClosed] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const [installError, setInstallError] = useState<string | null>(null);
   useEffect(() => { getVersion().then(setInstalledVersion).catch(() => undefined); }, []);
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(stored)); }, [stored]);
 
@@ -88,14 +90,25 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const release = stored.lastResult?.release ?? null;
   const bannerVisible = status === "update_available" && !!release && !bannerClosed && !(stored.snoozedVersion === release.version && stored.snoozedUntil > Date.now());
   const value = useMemo<UpdateContextValue>(() => ({
-    ...stored, installedVersion, status, bannerVisible,
+    ...stored, installedVersion, status, bannerVisible, installing, installError,
     setAutomatic: (automatic) => setStored((current) => ({ ...current, automatic })),
     setChannel: (channel) => { setStatus("idle"); setStored((current) => ({ ...current, channel, lastResult: null })); },
     check: runCheck,
     closeBanner: () => setBannerClosed(true),
     remindLater: () => { if (release) setStored((current) => ({ ...current, snoozedVersion: release.version, snoozedUntil: Date.now() + TWELVE_HOURS })); },
     openRelease: async () => { if (release && officialReleaseUrl(release.url)) await openUrl(release.url); },
-  }), [bannerVisible, installedVersion, release, runCheck, status, stored]);
+    install: async () => {
+      if (!release?.assetUrl || installing) return;
+      setInstalling(true);
+      setInstallError(null);
+      try {
+        await invoke<void>("install_update", { assetUrl: release.assetUrl });
+      } catch (error) {
+        setInstallError(typeof error === "string" ? error : "No se pudo instalar la actualización.");
+        setInstalling(false);
+      }
+    },
+  }), [bannerVisible, installedVersion, installError, installing, release, runCheck, status, stored]);
   return <UpdateContext.Provider value={value}>{children}</UpdateContext.Provider>;
 }
 
