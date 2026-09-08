@@ -11,7 +11,8 @@ import { createConversation, loadConversations, saveConversations } from "../ser
 import { archiveConversation, conversationMarkdown, duplicateConversation, isConversationBusy, pinConversation, renameConversation, sortConversations } from "../services/conversationActions";
 import { chooseChatFiles, chooseExternalFolder, errorMessage, projectFiles } from "../services/fileSystem";
 import { usePreferences } from "../services/preferences";
-import type { AgentCommandEvent, AgentTask, AiProjectAction, AiSettings, AppliedChange, ChatMessage, ChatUpload, ContextReference, Conversation, ConversationMode, DetectedCommand, Diagnostic, ExternalFolderGrant, OpenFile, ProjectInfo, WebSearchSource } from "../types";
+import { computerAccess, useNovaPermissions } from "../services/permissions";
+import type { AgentCommandEvent, AgentTask, AiProjectAction, AiSettings, AiTerminalAction, AppliedChange, ChatMessage, ChatUpload, ContextReference, Conversation, ConversationMode, DetectedCommand, Diagnostic, ExternalFolderGrant, OpenFile, ProjectInfo, ProviderConfig, WebSearchSource } from "../types";
 import { AgentTaskCard } from "./AgentTaskCard";
 import { AssistantMessageContent } from "./AssistantMessageContent";
 import { DiagnosticCard } from "./DiagnosticCard";
@@ -21,6 +22,7 @@ import type { ConversationMenuAction } from "./ConversationMenu";
 import { ConversationDialog } from "./ConversationDialog";
 
 type PreviewAction = AiProjectAction & { before?: string; isNew?: boolean };
+type PendingTerminal = { action: AiTerminalAction; conversationId: string; messageId: string; messages: { role: "system" | "user" | "assistant"; content: string }[]; config: ProviderConfig; projectPath: string; folders: ExternalFolderGrant[] };
 type Props = {
   mode: ConversationMode;
   activeWorkspace: boolean;
@@ -38,8 +40,23 @@ type Props = {
 };
 
 function visibleAnswer(content: string) {
-  const internalBlock = content.indexOf("<nova_actions>");
+  const blocks = [content.indexOf("<nova_actions>"), content.indexOf("<nova_terminal>")].filter((index) => index >= 0);
+  const internalBlock = blocks.length ? Math.min(...blocks) : -1;
   return (internalBlock >= 0 ? content.slice(0, internalBlock) : content).trim();
+}
+
+function proposedTerminal(content: string): AiTerminalAction | null {
+  const match = content.match(/<nova_terminal>([\s\S]*?)<\/nova_terminal>/);
+  if (!match) return null;
+  try {
+    const value = JSON.parse(match[1].trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")) as AiTerminalAction;
+    const hasShellCommand = typeof value.command === "string" && !!value.command.trim();
+    const hasSafeProgram = typeof value.program === "string" && !!value.program.trim() && Array.isArray(value.args) && value.args.every((item) => typeof item === "string");
+    if (!hasShellCommand && !hasSafeProgram) return null;
+    if (value.cwd !== undefined && typeof value.cwd !== "string") return null;
+    if (value.rootId !== undefined && typeof value.rootId !== "string") return null;
+    return value;
+  } catch { return null; }
 }
 
 function validActions(value: unknown): AiProjectAction[] {
@@ -124,6 +141,7 @@ const SLASH_COMMANDS = [
 
 export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, settings, sidebarOpen, onAddProject, onSelectProject, onConfigure, onSettingsChange, onFilesChanged, onNotify }: Props) {
   const { t } = usePreferences();
+  const { permissions } = useNovaPermissions();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState("");
   const [input, setInput] = useState("");
@@ -143,8 +161,10 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
   const [detectedCommands, setDetectedCommands] = useState<DetectedCommand[]>([]);
   const [modePickerOpen, setModePickerOpen] = useState(false);
   const [pendingCommand, setPendingCommand] = useState<{ conversationId: string; command: DetectedCommand } | null>(null);
+  const [pendingTerminal, setPendingTerminal] = useState<PendingTerminal | null>(null);
   const [commandBusy, setCommandBusy] = useState(false);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+  const [computerRoots, setComputerRoots] = useState<ExternalFolderGrant[]>([]);
   const messagesRef = useRef<HTMLDivElement>(null);
   const followMessages = useRef(true);
   const agentRequestId = useRef<string | null>(null);
@@ -159,6 +179,10 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
   const active = activeProviderConfig(settings);
   const ready = !!active?.model && (!providerMeta[active.provider].requiresKey || active.apiKeyConfigured);
   const conversation = conversations.find((item) => item.id === activeId) ?? conversations[0];
+  const authorizedFolders = useMemo(() => [
+    ...(conversation?.externalFolders ?? []),
+    ...(permissions.computerAccess === "full" ? computerRoots : []),
+  ], [computerRoots, conversation?.externalFolders, permissions.computerAccess]);
   const generatingHere = generating && generatingConversationId === conversation?.id;
   const generatingElsewhere = generating && !!conversation && generatingConversationId !== conversation.id;
   const codeMode = mode === "code";
@@ -208,7 +232,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
     setConversations(initial);
     setActiveId(initial[0].id);
     setInput(""); setUploads([]); setProjectAttachments([]); setPreview([]); setDiagnostic(null);
-    setGeneratingConversationId(null);
+    setGeneratingConversationId(null); setPendingTerminal(null); setPendingCommand(null);
   }, [codeMode, mode, project?.path]);
 
   useEffect(() => {
@@ -225,6 +249,15 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
     if (!project) { setDetectedCommands([]); return; }
     agent.detectCommands(project.path).then(setDetectedCommands).catch(() => setDetectedCommands([]));
   }, [project?.path]);
+
+  useEffect(() => {
+    if (!codeMode || permissions.computerAccess !== "full") { setComputerRoots([]); return; }
+    let active = true;
+    void computerAccess.roots().then((roots) => {
+      if (active) setComputerRoots(roots.map((root) => ({ ...root, access: "write" })));
+    }).catch(() => { if (active) setComputerRoots([]); });
+    return () => { active = false; };
+  }, [codeMode, permissions.computerAccess]);
 
   useEffect(() => {
     if (skipPersistence.current) { skipPersistence.current = false; return; }
@@ -316,6 +349,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
 
   async function requestDetectedCommand(kind: DetectedCommand["kind"]) {
     if (!conversation || !project || commandBusy) return;
+    if (permissions.terminalAccess === "disabled") { addLocalMessage(t("La ejecución de comandos está desactivada en Configuración > Terminal.", "Command execution is disabled in Settings > Terminal.")); return; }
     const command = detectedCommands.find((item) => item.kind === kind);
     if (!command) { addLocalMessage(`No encontré un comando de ${kind === "test" ? "pruebas" : kind === "build" ? "compilación" : "comprobación"} configurado en este proyecto.`); return; }
     const direct = conversation.approvalMode === "full";
@@ -326,6 +360,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
 
   async function executeDetectedCommand(command: DetectedCommand, _approveTask = false) {
     if (!conversation || !project || commandBusy) return;
+    if (permissions.terminalAccess === "disabled") { addLocalMessage(t("La ejecución de comandos está desactivada en Configuración > Terminal.", "Command execution is disabled in Settings > Terminal.")); return; }
     const conversationId = conversation.id; const id = crypto.randomUUID(); agentRequestId.current = id; setPendingCommand(null); setCommandBusy(true); setDiagnostic(null);
     // “Aprobar para esta tarea” no cambia el permiso permanente de la conversación.
     const updateTask = (updater: (task: AgentTask) => AgentTask) => updateConversationById(conversationId, (item) => item.agentTask ? ({ ...item, agentTask: updater(item.agentTask), updatedAt: Date.now() }) : item);
@@ -336,9 +371,62 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
       if (event.type === "cancelled") updateTask((task) => ({ ...task, state: "cancelled", updatedAt: Date.now() }));
       if (event.type === "error") { setDiagnostic({ code: event.code, title: event.title, explanation: event.explanation, cause: "La ejecución segura no pudo continuar.", action: event.action, technicalDetails: null, retryable: true }); updateTask((task) => ({ ...task, state: "failed", updatedAt: Date.now() })); }
     };
-    try { await agent.runCommand({ requestId: id, root: project.path, cwd: "", program: command.program, args: command.args, timeoutSecs: 900 }, receive); }
+    try { await agent.runCommand({ requestId: id, root: project.path, cwd: "", program: command.program, args: command.args, terminalMode: permissions.terminalAccess, shell: permissions.terminalShell, timeoutSecs: 900 }, receive); }
     catch (cause) { setDiagnostic(asDiagnostic(cause)); updateTask((task) => ({ ...task, state: "failed", updatedAt: Date.now() })); }
     finally { agentRequestId.current = null; setCommandBusy(false); }
+  }
+
+  function terminalCommandPreview(action: AiTerminalAction): DetectedCommand {
+    const shellCommand = action.command?.trim();
+    return { id: "nova-terminal", label: action.purpose || t("Comando solicitado por Nova", "Command requested by Nova"), program: shellCommand ? (permissions.terminalShell === "automatic" ? t("Terminal del sistema", "System terminal") : permissions.terminalShell) : action.program || "", args: shellCommand ? [shellCommand] : action.args || [], kind: "check" };
+  }
+
+  async function executeProposedTerminal(pending: PendingTerminal) {
+    if (commandBusy) return;
+    if (permissions.terminalAccess === "disabled") { setDiagnostic(asDiagnostic(t("La terminal se desactivó antes de ejecutar el comando.", "The terminal was disabled before running the command."))); return; }
+    const { action, conversationId, messageId } = pending;
+    const folder = action.rootId ? pending.folders.find((item) => item.id === action.rootId) : null;
+    if (action.rootId && !folder) { setDiagnostic(asDiagnostic(t("La ubicación solicitada ya no está autorizada.", "The requested location is no longer authorized."))); return; }
+    if (folder?.access === "read") { setDiagnostic(asDiagnostic(t("Una terminal no puede ejecutarse dentro de una carpeta autorizada solo para lectura.", "A terminal cannot run inside a folder authorized as read-only."))); return; }
+    const root = folder?.path ?? pending.projectPath;
+    const command = terminalCommandPreview(action);
+    const id = crypto.randomUUID();
+    let output = "";
+    let exitCode: number | null = null;
+    let failed = false;
+    agentRequestId.current = id;
+    setPendingTerminal(null); setPendingCommand(null); setCommandBusy(true); setGenerating(true); setGeneratingConversationId(conversationId); setDiagnostic(null);
+    updateConversationById(conversationId, (item) => ({ ...item, agentTask: { id, state: "executing", startedAt: Date.now(), updatedAt: Date.now(), command: `${command.program} ${command.args.join(" ")}`.trim(), steps: [{ id: "approve", label: t("Permiso concedido", "Permission granted"), status: "completed" }, { id: "run", label: t("Ejecutar comando", "Run command"), status: "in_progress" }, { id: "answer", label: t("Interpretar resultado", "Interpret result"), status: "pending" }] }, updatedAt: Date.now() }));
+    try {
+      await agent.runCommand({ requestId: id, root, cwd: action.cwd || "", program: action.program || "", args: action.args || [], command: action.command, terminalMode: permissions.terminalAccess, shell: permissions.terminalShell, timeoutSecs: 900 }, (event) => {
+        if (event.type === "output") output = `${output}${event.text}`.slice(-524288);
+        if (event.type === "finished") exitCode = event.exitCode;
+        if (event.type === "cancelled" || event.type === "error") failed = true;
+        if (event.type === "error") setDiagnostic({ code: event.code, title: event.title, explanation: event.explanation, cause: t("La terminal no pudo completar el comando.", "The terminal could not complete the command."), action: event.action, technicalDetails: null, retryable: true });
+        updateConversationById(conversationId, (item) => item.agentTask ? ({ ...item, agentTask: { ...item.agentTask, output, exitCode, state: event.type === "cancelled" ? "cancelled" : event.type === "error" ? "failed" : item.agentTask.state, updatedAt: Date.now() }, updatedAt: Date.now() }) : item);
+      });
+      if (failed) return;
+      updateConversationById(conversationId, (item) => item.agentTask ? ({ ...item, agentTask: { ...item.agentTask, state: "analyzing", steps: item.agentTask.steps.map((step) => step.id === "run" ? { ...step, status: "completed" } : step.id === "answer" ? { ...step, status: "in_progress" } : step), updatedAt: Date.now() }, updatedAt: Date.now() }) : item);
+      updateConversationById(conversationId, (item) => ({ ...item, messages: item.messages.map((entry) => entry.id === messageId ? { ...entry, content: "" } : entry), updatedAt: Date.now() }));
+      const continuationId = crypto.randomUUID(); requestId.current = continuationId;
+      await ai.chat({ requestId: continuationId, projectPath: pending.projectPath, config: pending.config, messages: [...pending.messages, { role: "assistant", content: `<nova_terminal>${JSON.stringify(action)}</nova_terminal>` }, { role: "user", content: `RESULTADO REAL DE LA TERMINAL (código de salida ${exitCode ?? "desconocido"}):\n${output || "El comando no produjo salida."}\n\nAhora responde al usuario usando este resultado. No solicites repetir el mismo comando.` }], attachments: [], uploads: [], externalFolders: pending.folders, workspaceAccess: false, canEdit: permissions.allowFileChanges, codeMode: true, terminalAccess: permissions.terminalAccess, terminalShell: permissions.terminalShell }, (event) => {
+        if (event.type === "delta") updateConversationById(conversationId, (item) => ({ ...item, messages: item.messages.map((entry) => entry.id === messageId ? { ...entry, content: entry.content + event.text } : entry), updatedAt: Date.now() }));
+        if (event.type === "error") setDiagnostic(event.diagnostic);
+      });
+      updateConversationById(conversationId, (item) => item.agentTask ? ({ ...item, agentTask: { ...item.agentTask, state: "completed", steps: item.agentTask.steps.map((step) => ({ ...step, status: "completed" })), updatedAt: Date.now() }, updatedAt: Date.now() }) : item);
+    } catch (cause) {
+      setDiagnostic(asDiagnostic(cause));
+      updateConversationById(conversationId, (item) => item.agentTask ? ({ ...item, agentTask: { ...item.agentTask, state: "failed", updatedAt: Date.now() }, updatedAt: Date.now() }) : item);
+    } finally {
+      agentRequestId.current = null; requestId.current = null; setCommandBusy(false); setGenerating(false); setGeneratingConversationId(null);
+    }
+  }
+
+  function rejectProposedTerminal() {
+    if (!pendingTerminal) return;
+    const { conversationId, messageId } = pendingTerminal;
+    updateConversationById(conversationId, (item) => ({ ...item, messages: item.messages.map((entry) => entry.id === messageId ? { ...entry, content: t("No ejecuté el comando porque no fue autorizado.", "I did not run the command because it was not authorized.") } : entry), agentTask: item.agentTask ? { ...item.agentTask, state: "cancelled", updatedAt: Date.now() } : item.agentTask, updatedAt: Date.now() }));
+    setPendingTerminal(null);
   }
 
   async function stopAgentCommand() { const id = agentRequestId.current; if (id) await agent.cancel(id); }
@@ -471,6 +559,13 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
   async function handleProposedActions(actions: AiProjectAction[], mode: Conversation["approvalMode"], owner: { conversationId: string; messageId: string }) {
     if (!actions.length || !project) return;
     try {
+      if (!permissions.allowFileChanges) throw new Error(t("La edición de archivos está desactivada en Configuración > Permisos.", "File editing is disabled in Settings > Permissions."));
+      if (!permissions.allowDestructiveActions && actions.some((item) => item.type === "rename" || item.type === "delete")) throw new Error(t("Renombrar y eliminar está desactivado en Configuración > Permisos.", "Rename and delete is disabled in Settings > Permissions."));
+      if (actions.some((item) => item.rootId?.startsWith("computer-"))) {
+        await preparePreview(actions, owner);
+        setStatus(t("Cambios fuera del proyecto listos para revisar", "Changes outside the project are ready for review"));
+        return;
+      }
       if (mode === "full") {
         setStatus("Aplicando operaciones con acceso completo…");
         const applied = await applyActions(actions);
@@ -514,7 +609,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
     const uploadedMeta = uploads.map(({ data: _data, ...item }) => item);
     const requestHasImages = requestUploads.some((item) => item.kind === "image");
     const useWorkspace = requestCodeMode && !!project && !isSimpleGreeting(prompt);
-    const webSearchAttempted = needsWebSearch(prompt);
+    const webSearchAttempted = permissions.allowWebAccess && needsWebSearch(prompt);
     let webSources: WebSearchSource[] = [];
     if (webSearchAttempted) {
       try { webSources = (await ai.searchWeb(prompt)).sources; } catch { webSources = []; }
@@ -522,7 +617,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
     const userMessage = { ...message("user", prompt, uploadedMeta, []), webSearchAttempted, webSources };
     const assistantMessage = message("assistant", "");
     const conversationId = conversation.id;
-    const actionExpected = requestCodeMode && useWorkspace && requestsProjectAction(prompt, base);
+    const actionExpected = requestCodeMode && useWorkspace && permissions.allowFileChanges && requestsProjectAction(prompt, base);
     const recentBase = requestHistory(base);
     const history = [...recentBase, userMessage];
     const nextMessages = [...history, assistantMessage];
@@ -593,10 +688,12 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
         requestId: id, projectPath: requestProjectPath, config: requestConfig,
         messages: requestMessages, attachments: requestAttachments,
         uploads: requestUploads,
-        externalFolders: requestCodeMode ? conversation.externalFolders : [],
+        externalFolders: requestCodeMode ? authorizedFolders : [],
         // Capability stays enabled throughout NovaAI Code. actionExpected is
         // the separate safety gate for reviewing/applying this message's edits.
-        workspaceAccess: useWorkspace, canEdit: requestCodeMode, codeMode: requestCodeMode,
+        workspaceAccess: useWorkspace, canEdit: requestCodeMode && permissions.allowFileChanges, codeMode: requestCodeMode,
+        terminalAccess: requestCodeMode ? permissions.terminalAccess : "disabled",
+        terminalShell: permissions.terminalShell,
       }, receive);
     };
     try {
@@ -607,6 +704,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
         ...history.map(({ role, content }) => ({ role, content })),
       ];
       await runRequest(requestHistory);
+      let terminalAction = proposedTerminal(assistantBuffer.current);
       if (requestHasImages && !assistantBuffer.current.trim() && !interrupted) {
         const explanation = "No puedo ver esta imagen con el modelo seleccionado. El modelo no devolvió ningún contenido al recibirla; prueba con un modelo que admita visión.";
         assistantBuffer.current = explanation;
@@ -614,27 +712,39 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
         setStatus("El modelo no pudo interpretar la imagen");
       }
       let actions = streamedActions.length ? streamedActions : proposedActions(assistantBuffer.current);
-      if (actionExpected && !actions.length && !interrupted) {
+      if (actionExpected && !actions.length && !terminalAction && !interrupted) {
         // Several providers return a valid code fence but omit Nova's action
         // wrapper. Treat that as an editable file instead of discarding it.
         actions = codeBlockAction(assistantBuffer.current, prompt);
       }
-      for (let attempt = 1; actionExpected && !actions.length && !interrupted && attempt <= 1; attempt += 1) {
+      for (let attempt = 1; actionExpected && !actions.length && !terminalAction && !interrupted && attempt <= 1; attempt += 1) {
         setStatus("Corrigiendo el formato de la operación…");
         const failedAnswer = assistantBuffer.current;
         assistantBuffer.current = "";
         updateConversationById(conversationId, (item) => ({ ...item, messages: item.messages.map((entry) => entry.id === assistantMessage.id ? { ...entry, content: "", reasoning: undefined } : entry), updatedAt: Date.now() }));
         await runRequest([...requestHistory, { role: "assistant", content: failedAnswer }, { role: "user", content: "Ejecuta la tarea de archivos ahora. No expliques, no saludes y no devuelvas Markdown. Responde exclusivamente con <nova_actions>{\"actions\":[{\"type\":\"write\",\"path\":\"archivo.ext\",\"content\":\"contenido completo\"}]}</nova_actions>. Usa la ruta y el contenido que corresponden a la tarea pendiente." }]);
         actions = proposedActions(assistantBuffer.current);
+        terminalAction = proposedTerminal(assistantBuffer.current);
         if (!actions.length) actions = codeBlockAction(assistantBuffer.current, prompt);
       }
-      if (actions.length) {
+      if (actions.length && actionExpected) {
         if (streamedActionPromise) await streamedActionPromise;
         else await handleProposedActions(actions, conversation.approvalMode, { conversationId, messageId: assistantMessage.id });
       }
-      else if (!actionExpected && actions.length) {
+      else if (actions.length) {
         setDiagnostic({ code: "PERMISSION_DENIED", title: "Cambio no solicitado bloqueado", explanation: "El modelo propuso modificar archivos aunque tu pregunta no lo pedía.", cause: "La respuesta incluía una operación de archivos fuera de una solicitud explícita.", action: "Nova no aplicó ningún cambio. Pide una edición de forma explícita si la necesitas.", technicalDetails: null, retryable: false });
         setStatus("Cambio no solicitado bloqueado");
+      }
+      else if (terminalAction && !interrupted) {
+        if (permissions.terminalAccess === "disabled") {
+          updateConversationById(conversationId, (item) => ({ ...item, messages: item.messages.map((entry) => entry.id === assistantMessage.id ? { ...entry, content: t("La terminal está desactivada. Puedes activarla en Configuración > Terminal.", "The terminal is disabled. You can enable it in Settings > Terminal.") } : entry), updatedAt: Date.now() }));
+        } else {
+          const pending: PendingTerminal = { action: terminalAction, conversationId, messageId: assistantMessage.id, messages: requestHistory, config: requestConfig, projectPath: requestProjectPath!, folders: [...authorizedFolders] };
+          setPendingTerminal(pending);
+          const display = terminalCommandPreview(terminalAction);
+          updateConversationById(conversationId, (item) => ({ ...item, agentTask: { id: crypto.randomUUID(), state: "awaiting_approval", startedAt: Date.now(), updatedAt: Date.now(), command: `${display.program} ${display.args.join(" ")}`.trim(), steps: [{ id: "review", label: t("Revisar comando", "Review command"), status: "in_progress" }, { id: "run", label: t("Ejecutar comando", "Run command"), status: "pending" }, { id: "answer", label: t("Interpretar resultado", "Interpret result"), status: "pending" }] }, updatedAt: Date.now() }));
+          setStatus(t("Esperando permiso para usar la terminal", "Waiting for permission to use the terminal"));
+        }
       }
       else if (actionExpected && !interrupted) {
         setDiagnostic({ code: "ACTION_FORMAT_INVALID", title: "El modelo no generó una operación válida", explanation: "Nova intentó corregir la respuesta automáticamente, pero el modelo volvió a omitir el bloque de acciones.", cause: "El modelo seleccionado puede ser demasiado pequeño o no seguir instrucciones estructuradas.", action: "Reintenta o selecciona un modelo de programación con mejor seguimiento de instrucciones.", technicalDetails: assistantBuffer.current || "Respuesta vacía", retryable: true });
@@ -707,7 +817,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
   function actionRoot(action: AiProjectAction) {
     if (!project) throw new Error("No hay un proyecto abierto.");
     if (!action.rootId) return project.path;
-    const folder = conversation?.externalFolders.find((entry) => entry.id === action.rootId);
+    const folder = authorizedFolders.find((entry) => entry.id === action.rootId);
     if (!folder) throw new Error("La carpeta adicional ya no tiene permiso.");
     if (folder.access !== "write") throw new Error(`La carpeta ${folder.name} solo tiene permiso de lectura.`);
     return folder.path;
@@ -778,6 +888,10 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
     finally { setApplying(false); }
   }
 
+  const visiblePendingTerminal = pendingTerminal?.conversationId === conversation?.id ? pendingTerminal : null;
+  const visiblePendingCommand = pendingCommand && conversation && pendingCommand.conversationId === conversation.id ? pendingCommand.command : null;
+  const pendingApproval = visiblePendingTerminal ? terminalCommandPreview(visiblePendingTerminal.action) : visiblePendingCommand;
+
   return <section className="chat-layout">
     <ConversationSidebar mode={mode} interactive={activeWorkspace} open={sidebarOpen} projectName={project?.name ?? t("Sin proyecto", "No project")} projectPath={project?.path ?? null} projects={projects} conversations={conversations} activeId={activeId} generatingConversationId={generatingConversationId} persistenceError={persistenceError} onAddProject={onAddProject} onSelectProject={onSelectProject} onSelect={setActiveId} onNew={newConversation} onAction={manageConversation} isBusy={(item) => isConversationBusy(item, generatingConversationId)} />
     <section className="chat-pane">
@@ -824,7 +938,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
             {(item.role === "user" ? item.content : visibleAnswer(item.content)) && <div className="message-actions"><button onClick={() => navigator.clipboard.writeText(item.role === "assistant" ? visibleAnswer(item.content) : item.content)} title={t("Copiar", "Copy")}><Clipboard size={13} /></button>{item.role === "user" && !generatingHere && <button onClick={() => editQuestion(item)} title={t("Editar pregunta", "Edit question")}><Edit3 size={13} /></button>}</div>}
           </div>
         </article>)}
-        {conversation?.agentTask && <AgentTaskCard task={conversation.agentTask} pending={pendingCommand?.conversationId === conversation.id ? pendingCommand.command : null} busy={commandBusy} onApprove={pendingCommand?.conversationId === conversation.id ? () => void executeDetectedCommand(pendingCommand.command) : undefined} onApproveTask={pendingCommand?.conversationId === conversation.id ? () => void executeDetectedCommand(pendingCommand.command, true) : undefined} onReject={() => { setPendingCommand(null); updateConversation((item) => item.agentTask ? { ...item, agentTask: { ...item.agentTask, state: "cancelled", updatedAt: Date.now() }, updatedAt: Date.now() } : item); }} onStop={() => void stopAgentCommand()} onResume={conversation.agentTask.state === "interrupted" ? () => { const latest = [...conversation.messages].reverse().find((item) => item.role === "user")?.content; if (latest) void send(latest); } : undefined} />}
+        {conversation?.agentTask && <AgentTaskCard task={conversation.agentTask} pending={pendingApproval} busy={commandBusy} onApprove={visiblePendingTerminal ? () => void executeProposedTerminal(visiblePendingTerminal) : visiblePendingCommand ? () => void executeDetectedCommand(visiblePendingCommand) : undefined} onApproveTask={visiblePendingCommand ? () => void executeDetectedCommand(visiblePendingCommand, true) : undefined} onReject={visiblePendingTerminal ? rejectProposedTerminal : () => { setPendingCommand(null); updateConversation((item) => item.agentTask ? { ...item, agentTask: { ...item.agentTask, state: "cancelled", updatedAt: Date.now() }, updatedAt: Date.now() } : item); }} onStop={() => void stopAgentCommand()} onResume={conversation.agentTask.state === "interrupted" ? () => { const latest = [...conversation.messages].reverse().find((item) => item.role === "user")?.content; if (latest) void send(latest); } : undefined} />}
         {diagnostic && <DiagnosticCard diagnostic={diagnostic} onRetry={() => void send(lastPrompt.current)} />}
       </div>
       {showJumpToBottom && <button type="button" className="jump-to-bottom" onClick={() => scrollToBottom()} title={t("Ir al final", "Jump to bottom")} aria-label={t("Ir al final del chat", "Jump to the bottom of the chat")}><ChevronDown size={17} /></button>}

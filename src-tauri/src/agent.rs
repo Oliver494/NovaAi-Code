@@ -57,6 +57,12 @@ pub struct AgentCommandRequest {
     program: String,
     args: Vec<String>,
     timeout_secs: u64,
+    #[serde(default)]
+    terminal_mode: String,
+    #[serde(default)]
+    shell: String,
+    #[serde(default)]
+    command: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -231,6 +237,15 @@ fn allowed_program(value: &str) -> Option<&'static str> {
             "mvn"
         }),
         "gradle" => Some("gradle"),
+        "git" => Some("git"),
+        "systeminfo" if cfg!(target_os = "windows") => Some("systeminfo"),
+        "wmic" if cfg!(target_os = "windows") => Some("wmic"),
+        "df" if !cfg!(target_os = "windows") => Some("df"),
+        "free" if !cfg!(target_os = "windows") => Some("free"),
+        "uname" if !cfg!(target_os = "windows") => Some("uname"),
+        "ls" if !cfg!(target_os = "windows") => Some("ls"),
+        "pwd" if !cfg!(target_os = "windows") => Some("pwd"),
+        "du" if !cfg!(target_os = "windows") => Some("du"),
         _ => None,
     }
 }
@@ -267,6 +282,87 @@ fn validate_args(args: &[String]) -> Result<(), String> {
         return Err("El comando intenta instalar globalmente, publicar, descargar scripts o modificar el sistema.".into());
     }
     Ok(())
+}
+
+fn shell_command(request: &AgentCommandRequest) -> Result<Option<(String, Vec<String>)>, String> {
+    let Some(command) = request.command.as_deref() else {
+        return Ok(None);
+    };
+    if !matches!(request.terminal_mode.as_str(), "shell" | "admin") {
+        return Err("La terminal completa no está autorizada en Configuración > Terminal.".into());
+    }
+    if command.trim().is_empty() || command.len() > 8_000 || command.contains('\0') {
+        return Err("El comando de terminal está vacío o es demasiado largo.".into());
+    }
+    let admin = request.terminal_mode == "admin";
+    #[cfg(target_os = "windows")]
+    {
+        let selected = match request.shell.as_str() {
+            "cmd" => "cmd",
+            "powershell" | "automatic" | "" => "powershell",
+            _ => return Err("Ese intérprete no está disponible en Windows.".into()),
+        };
+        if admin {
+            use base64::{engine::general_purpose::STANDARD, Engine};
+            let payload = if selected == "cmd" {
+                format!("cmd.exe /D /S /C \"{}\"", command.replace('"', "\\\""))
+            } else {
+                command.to_string()
+            };
+            let utf16 = payload
+                .encode_utf16()
+                .flat_map(u16::to_le_bytes)
+                .collect::<Vec<_>>();
+            let encoded = STANDARD.encode(utf16);
+            let elevation = format!("Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -ArgumentList '-NoProfile','-EncodedCommand','{}'", encoded);
+            return Ok(Some((
+                "powershell.exe".into(),
+                vec![
+                    "-NoLogo".into(),
+                    "-NoProfile".into(),
+                    "-NonInteractive".into(),
+                    "-Command".into(),
+                    elevation,
+                ],
+            )));
+        }
+        return Ok(Some(if selected == "cmd" {
+            (
+                "cmd.exe".into(),
+                vec!["/D".into(), "/S".into(), "/C".into(), command.into()],
+            )
+        } else {
+            (
+                "powershell.exe".into(),
+                vec![
+                    "-NoLogo".into(),
+                    "-NoProfile".into(),
+                    "-NonInteractive".into(),
+                    "-Command".into(),
+                    command.into(),
+                ],
+            )
+        }));
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let shell = match request.shell.as_str() {
+            "zsh" => "/bin/zsh",
+            "bash" | "automatic" | "" => "/bin/bash",
+            _ => return Err("Ese intérprete no está disponible en Linux.".into()),
+        };
+        if !Path::new(shell).is_file() {
+            return Err(format!("No se encontró {shell} en este equipo."));
+        }
+        return Ok(Some(if admin {
+            (
+                "pkexec".into(),
+                vec![shell.into(), "-lc".into(), command.into()],
+            )
+        } else {
+            (shell.into(), vec!["-lc".into(), command.into()])
+        }));
+    }
 }
 
 #[tauri::command]
@@ -387,12 +483,50 @@ pub async fn run_agent_command(
     on_event: Channel<AgentCommandEvent>,
     runtime: State<'_, AgentRuntime>,
 ) -> Result<(), String> {
+    if request.command.is_none() && request.program.eq_ignore_ascii_case("nova-system-info") {
+        if request.terminal_mode == "disabled" {
+            return Err("La terminal está desactivada en Configuración > Terminal.".into());
+        }
+        if request.request_id.trim().is_empty() {
+            return Err("Falta el identificador del proceso.".into());
+        }
+        let started = Instant::now();
+        let _ = on_event.send(AgentCommandEvent::Started {
+            command: "nova-system-info".into(),
+        });
+        // System information is a Nova capability, not a shell process. It must
+        // also work when the model supplies `/`, an absolute cwd, or no valid
+        // project. Use the project only to select its disk when it is available.
+        let storage_root = canonical_root(&request.root)
+            .ok()
+            .map(|path| path.to_string_lossy().to_string());
+        let summary = crate::system::system_summary(storage_root).await?;
+        let _ = on_event.send(AgentCommandEvent::Output {
+            stream: "stdout".into(),
+            text: format!("{summary}\n"),
+        });
+        let _ = on_event.send(AgentCommandEvent::Finished {
+            exit_code: Some(0),
+            duration_ms: started.elapsed().as_millis() as u64,
+            truncated: false,
+        });
+        return Ok(());
+    }
     let root = canonical_root(&request.root)?;
     let cwd = safe_cwd(&root, &request.cwd)?;
-    validate_args(&request.args)?;
-    let program = allowed_program(&request.program).ok_or_else(|| {
-        "El programa solicitado no está en la lista segura de NovaAI Code.".to_string()
-    })?;
+    let terminal = shell_command(&request)?;
+    let (program, args) = if let Some(value) = terminal {
+        value
+    } else {
+        if request.terminal_mode == "disabled" {
+            return Err("La terminal está desactivada en Configuración > Terminal.".into());
+        }
+        validate_args(&request.args)?;
+        let program = allowed_program(&request.program).ok_or_else(|| {
+            "El programa solicitado no está en la lista segura de NovaAI Code.".to_string()
+        })?;
+        (program.to_string(), request.args.clone())
+    };
     if request.request_id.trim().is_empty() {
         return Err("Falta el identificador del proceso.".into());
     }
@@ -403,13 +537,16 @@ pub async fn run_agent_command(
         .lock()
         .await
         .insert(request.request_id.clone(), token.clone());
-    let display = format!("{} {}", request.program, request.args.join(" "))
+    let display = request
+        .command
+        .clone()
+        .unwrap_or_else(|| format!("{} {}", request.program, request.args.join(" ")))
         .trim()
         .to_string();
     let _ = on_event.send(AgentCommandEvent::Started { command: display });
     let started = Instant::now();
     let mut child = Command::new(program)
-        .args(&request.args)
+        .args(&args)
         .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -476,6 +613,20 @@ pub async fn cancel_agent_command(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn terminal_request(mode: &str, command: Option<&str>) -> AgentCommandRequest {
+        AgentCommandRequest {
+            request_id: "test".into(),
+            root: ".".into(),
+            cwd: "".into(),
+            program: "cargo".into(),
+            args: vec!["check".into()],
+            timeout_secs: 30,
+            terminal_mode: mode.into(),
+            shell: "automatic".into(),
+            command: command.map(str::to_string),
+        }
+    }
     #[test]
     fn blocks_shell_and_system_commands() {
         assert!(allowed_program("powershell").is_none());
@@ -496,6 +647,14 @@ mod tests {
         };
         assert_eq!(allowed_program("npm"), Some(expected_npm));
         assert_eq!(allowed_program("python"), Some(expected_python));
+    }
+    #[test]
+    fn full_shell_requires_an_explicit_terminal_level() {
+        assert!(shell_command(&terminal_request("project", Some("echo test"))).is_err());
+        assert!(shell_command(&terminal_request("disabled", Some("echo test"))).is_err());
+        assert!(shell_command(&terminal_request("shell", Some("echo test")))
+            .unwrap()
+            .is_some());
     }
     #[test]
     fn detects_project_commands_without_guessing() {

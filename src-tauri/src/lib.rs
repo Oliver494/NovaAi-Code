@@ -15,6 +15,7 @@ use tempfile::NamedTempFile;
 mod agent;
 mod ai;
 mod git;
+mod linux_compat;
 mod system;
 mod updates;
 
@@ -1348,6 +1349,7 @@ fn expand_actions_for_parent_directories(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    linux_compat::configure_webview_runtime();
     tauri::Builder::default()
         .manage(ai::AiState::default())
         .manage(agent::AgentRuntime::default())
@@ -1390,6 +1392,7 @@ pub fn run() {
             git::git_commit,
             git::git_discard_changes,
             system::inspect_hardware,
+            system::list_computer_roots,
             updates::check_for_updates
         ])
         .run(tauri::generate_context!())

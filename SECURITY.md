@@ -14,10 +14,12 @@ Include the affected version, reproduction steps, impact, and whether credential
 
 - NovaAI Code may read and modify files inside the project explicitly selected by the user.
 - Symlinks and path traversal are rejected.
-- Agent commands use an allowlist and do not invoke a shell.
+- The default terminal level uses an allowlist and does not invoke a shell.
+- User-shell, administrator-shell, and full-filesystem access are separate explicit opt-ins. A shell command can access anything allowed to the operating-system account.
+- Model-requested shell commands are displayed for approval. Administrator mode is never automatic and relies on UAC on Windows or the Linux authorization agent; Nova does not receive the user's password.
 - API keys are stored using the operating-system credential manager and must not appear in logs or project files.
 - Cloud providers receive selected project context; local providers keep requests on the configured local endpoint.
-- “Full access” does not authorize access outside the project or unrestricted system commands.
+- Full filesystem access exposes mounted roots on Windows and Linux without automatically scanning them. Changes outside the project still require review.
 
 ## User precautions
 

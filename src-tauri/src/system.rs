@@ -26,6 +26,39 @@ pub(crate) struct HardwareInfo {
     recommendations: Vec<ModelFit>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ComputerRoot {
+    id: String,
+    name: String,
+    path: String,
+}
+
+#[tauri::command]
+pub(crate) fn list_computer_roots() -> Vec<ComputerRoot> {
+    #[cfg(target_os = "windows")]
+    {
+        return (b'A'..=b'Z')
+            .filter_map(|letter| {
+                let path = format!("{}:\\", letter as char);
+                Path::new(&path).is_dir().then(|| ComputerRoot {
+                    id: format!("computer-{}", (letter as char).to_ascii_lowercase()),
+                    name: format!("Unidad {}:", letter as char),
+                    path,
+                })
+            })
+            .collect();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        vec![ComputerRoot {
+            id: "computer-root".into(),
+            name: "Sistema de archivos".into(),
+            path: "/".into(),
+        }]
+    }
+}
+
 #[cfg(target_os = "windows")]
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -179,6 +212,23 @@ pub(crate) async fn inspect_hardware(root: Option<String>) -> Result<HardwareInf
     })
 }
 
+pub(crate) async fn system_summary(root: Option<String>) -> Result<String, String> {
+    let info = inspect_hardware(root).await?;
+    let gib = |value: u64| value as f64 / 1024_f64.powi(3);
+    Ok(format!(
+        "Sistema operativo: {}\nCPU: {}\nNúcleos físicos/lógicos: {}/{}\nRAM total: {:.1} GB\nRAM disponible: {:.1} GB\nGPU: {}\nVRAM: {}\nAlmacenamiento disponible en el disco de trabajo: {}",
+        std::env::consts::OS,
+        info.cpu,
+        info.physical_cores,
+        info.logical_cores,
+        gib(info.ram_bytes),
+        gib(info.available_ram_bytes),
+        info.gpu.unwrap_or_else(|| "No detectada".into()),
+        info.vram_bytes.map(|value| format!("{:.1} GB", gib(value))).unwrap_or_else(|| "No disponible".into()),
+        info.disk_available_bytes.map(|value| format!("{:.1} GB", gib(value))).unwrap_or_else(|| "No disponible".into()),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,5 +238,16 @@ mod tests {
         let fits = model_fits(8 * 1024_u64.pow(3), Some(4 * 1024_u64.pow(3)));
         assert_eq!(fits[0].rating, "not_recommended");
         assert_eq!(fits[3].rating, "not_recommended");
+    }
+
+    #[tokio::test]
+    async fn system_summary_reports_real_capacity_without_a_shell() {
+        let temporary = tempfile::tempdir().unwrap();
+        let summary = system_summary(Some(temporary.path().to_string_lossy().to_string()))
+            .await
+            .unwrap();
+        assert!(summary.contains("RAM total:"));
+        assert!(summary.contains("Almacenamiento disponible"));
+        assert!(summary.contains(std::env::consts::OS));
     }
 }

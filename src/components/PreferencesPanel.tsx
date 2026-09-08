@@ -1,4 +1,4 @@
-import { Check, ChevronRight, Cloud, Cpu, GitBranch, History, Languages, Monitor, Moon, Palette, Rocket, Search, Stethoscope, Sun, X } from "lucide-react";
+import { Check, ChevronRight, Cloud, Cpu, GitBranch, History, Languages, Monitor, Moon, Palette, Rocket, Search, ShieldCheck, SquareTerminal, Stethoscope, Sun, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { usePreferences, type AppLanguage, type LanguagePreference, type ThemePreference } from "../services/preferences";
 import { UpdateSettings } from "./UpdateSettings";
@@ -7,9 +7,11 @@ import { RecoveryPanel } from "./RecoveryPanel";
 import type { AiSettings } from "../types";
 import { HardwarePanel } from "./HardwarePanel";
 import { GitPanel } from "./GitPanel";
+import { PermissionsPanel } from "./PermissionsPanel";
+import { TerminalPermissionsPanel } from "./TerminalPermissionsPanel";
 
 type Props = { onClose: () => void; onOpenProviders: () => void; projectPath: string | null; settings: AiSettings | null; onFilesRestored: (paths: string[]) => void };
-type PreferenceSection = "appearance" | "language" | "doctor" | "hardware" | "git" | "recovery" | "updates";
+type PreferenceSection = "appearance" | "language" | "permissions" | "terminal" | "doctor" | "hardware" | "git" | "recovery" | "updates";
 
 export function PreferencesPanel({ onClose, onOpenProviders, projectPath, settings, onFilesRestored }: Props) {
   const { theme, language, resolvedLanguage, setTheme, setLanguage, t } = usePreferences();
@@ -32,6 +34,8 @@ export function PreferencesPanel({ onClose, onOpenProviders, projectPath, settin
   const navigation = [
     { id: "appearance" as const, label: t("Apariencia", "Appearance"), description: t("Tema visual", "Visual theme"), icon: Palette },
     { id: "language" as const, label: t("Idioma", "Language"), description: t("Idioma de la interfaz", "Interface language"), icon: Languages },
+    { id: "permissions" as const, label: t("Permisos", "Permissions"), description: t("Archivos e Internet", "Files and Internet"), icon: ShieldCheck },
+    { id: "terminal" as const, label: t("Terminal", "Terminal"), description: t("Shell y elevación", "Shell and elevation"), icon: SquareTerminal },
     { id: "providers" as const, label: t("Proveedores", "Providers"), description: t("Modelos y conexiones", "Models and connections"), icon: Cloud },
     { id: "doctor" as const, label: "Doctor", description: t("Diagnóstico del sistema", "System diagnostics"), icon: Stethoscope },
     { id: "hardware" as const, label: t("Equipo", "Hardware"), description: t("RAM, GPU y modelos", "RAM, GPU, and models"), icon: Cpu },
@@ -53,9 +57,11 @@ export function PreferencesPanel({ onClose, onOpenProviders, projectPath, settin
           })}
         </nav>
         <main className="preferences-content">
-          <div className="preferences-page-title"><strong>{activeLabel}</strong><span>{section === "appearance" ? t("Elige cómo se muestra NovaAI Code", "Choose how NovaAI Code looks") : section === "language" ? t("Automático usa el idioma del sistema", "Automatic uses the system language") : section === "doctor" ? t("Comprueba el proyecto y la conexión activa", "Check the project and active connection") : section === "hardware" ? t("Comprueba qué modelos locales caben en tu equipo", "Check which local models fit your hardware") : section === "git" ? t("Revisa cambios sin modificar el repositorio", "Inspect changes without modifying the repository") : section === "recovery" ? t("Restaura cambios recientes del agente", "Restore recent agent changes") : t("Controla cómo recibes nuevas versiones", "Control how you receive new versions")}</span></div>
+          <div className="preferences-page-title"><strong>{activeLabel}</strong><span>{section === "appearance" ? t("Elige cómo se muestra NovaAI Code", "Choose how NovaAI Code looks") : section === "language" ? t("Automático usa el idioma del sistema", "Automatic uses the system language") : section === "permissions" ? t("Decide a qué puede acceder Nova y qué acciones puede realizar", "Choose what Nova can access and which actions it can perform") : section === "terminal" ? t("Controla qué comandos puede ejecutar el agente", "Control which commands the agent can run") : section === "doctor" ? t("Comprueba el proyecto y la conexión activa", "Check the project and active connection") : section === "hardware" ? t("Comprueba qué modelos locales caben en tu equipo", "Check which local models fit your hardware") : section === "git" ? t("Revisa cambios sin modificar el repositorio", "Inspect changes without modifying the repository") : section === "recovery" ? t("Restaura cambios recientes del agente", "Restore recent agent changes") : t("Controla cómo recibes nuevas versiones", "Control how you receive new versions")}</span></div>
           {section === "appearance" && <section className="preference-section"><div className="theme-options">{themes.map((item) => { const Icon = item.icon; return <button type="button" key={item.id} className={theme === item.id ? "is-active" : ""} onClick={() => setTheme(item.id)}><Icon size={19} /><span><strong>{item.label}</strong><small>{item.description}</small></span>{theme === item.id && <Check size={15} />}</button>; })}</div></section>}
           {section === "language" && <section className="preference-section"><div className="language-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Buscar idioma…", "Search languages…")} autoFocus /></div><div className="language-list">{filtered.map((item) => <button type="button" key={item.id} className={language === item.id ? "is-active" : ""} onClick={() => setLanguage(item.id)}><span className="language-symbol">{item.id === "auto" ? <Monitor size={16} /> : item.id.toUpperCase()}</span><span><strong>{item.name}</strong><small>{item.nativeName}{item.id === "auto" ? ` · ${item.detail}` : ""}</small></span>{language === item.id && <Check size={15} />}</button>)}{!filtered.length && <p>{t("No encontramos ese idioma.", "No languages found.")}</p>}</div></section>}
+          {section === "permissions" && <PermissionsPanel />}
+          {section === "terminal" && <TerminalPermissionsPanel />}
           {section === "doctor" && <DoctorPanel projectPath={projectPath} settings={settings} onOpenProviders={onOpenProviders} />}
           {section === "hardware" && <HardwarePanel projectPath={projectPath} />}
           {section === "git" && <GitPanel projectPath={projectPath} />}

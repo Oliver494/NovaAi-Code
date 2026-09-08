@@ -27,14 +27,16 @@ NovaAI Code es un asistente de programación open source, centrado en IA local y
 - API keys guardadas mediante el almacén seguro del sistema operativo.
 - Selección de modelos y control de esfuerzo cuando el modelo lo permite.
 - Operaciones de archivos con revisión y modos de permiso.
-- Ejecución restringida de pruebas, compilación y comprobaciones con aprobación.
+- Terminal configurable: desactivada, herramientas seguras, shell normal o administrador; CMD/PowerShell en Windows y Bash/Zsh en Linux.
+- La salida real de los comandos vuelve al modelo para que pueda responder con datos comprobados del equipo.
+- Acceso al sistema de archivos limitado al proyecto de fábrica, con acceso completo opcional y revisión obligatoria fuera del proyecto.
 - Catálogo de modelos locales para Ollama y LM Studio.
 - Temas claro/oscuro y 12 idiomas.
 - Avisos de actualizaciones desde GitHub Releases.
 
 ## Seguridad
 
-NovaAI Code bloquea rutas absolutas, `..`, enlaces simbólicos, carpetas ignoradas, nombres inseguros para el sistema, operadores de shell y comandos de sistema sin restricciones. Los proveedores externos reciben únicamente los mensajes y el contexto seleccionado para cada solicitud.
+De fábrica NovaAI Code bloquea rutas absolutas, `..`, enlaces simbólicos, carpetas ignoradas, nombres inseguros, shells y comandos de sistema sin restricciones. El acceso completo a archivos, la terminal normal y el modo administrador son permisos opcionales separados. Los comandos administrativos siempre requieren aprobación y Nova nunca conoce la contraseña del usuario.
 
 Lee [SECURITY.md](SECURITY.md) antes de activar permisos de agente y [PRIVACY.md](PRIVACY.md) para saber cuándo el código puede salir del equipo.
 

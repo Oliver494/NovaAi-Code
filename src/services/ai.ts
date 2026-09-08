@@ -45,7 +45,7 @@ export const ai = {
   generateNvidiaMedia: (request: { requestId: string; config: ProviderConfig; mode: "image" | "video"; model: string; prompt: string; imageData?: string | null }) => invoke<MediaGenerationResult>("generate_nvidia_media", { request }),
   searchWeb: (query: string) => invoke<WebSearchResult>("search_web", { request: { query, maxResults: 4 } }),
   cancel: (requestId: string) => invoke<boolean>("cancel_ai_chat", { requestId }),
-  chat: (request: { requestId: string; projectPath: string | null; config: ProviderConfig; messages: { role: "system" | "user" | "assistant"; content: string }[]; attachments: string[]; uploads: Pick<ChatUpload, "name" | "mimeType" | "kind" | "data">[]; externalFolders: ExternalFolderGrant[]; workspaceAccess: boolean; canEdit: boolean; codeMode: boolean }, onEvent: (event: AiChatEvent) => void) => {
+  chat: (request: { requestId: string; projectPath: string | null; config: ProviderConfig; messages: { role: "system" | "user" | "assistant"; content: string }[]; attachments: string[]; uploads: Pick<ChatUpload, "name" | "mimeType" | "kind" | "data">[]; externalFolders: ExternalFolderGrant[]; workspaceAccess: boolean; canEdit: boolean; codeMode: boolean; terminalAccess?: "disabled" | "project" | "shell" | "admin"; terminalShell?: "automatic" | "cmd" | "powershell" | "bash" | "zsh" }, onEvent: (event: AiChatEvent) => void) => {
     const channel = new Channel<AiChatEvent>();
     channel.onmessage = onEvent;
     return invoke<void>("chat_ai", { request, onEvent: channel });

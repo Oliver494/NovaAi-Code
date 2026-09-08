@@ -93,15 +93,17 @@ Provider availability depends on your own installation, account, billing, model 
 - Review every proposed change in a diff before applying it.
 - Use request-by-request approval, automatic approval for the task, or a deliberate full-access mode.
 - Authorize an additional external folder as **read-only** or **editable**; the model cannot access it until you explicitly select it.
-- Run a restricted set of project build/test/check commands with approval.
+- Choose between a disabled terminal, allowlisted project tools, a normal user shell, or an administrator shell. Model-requested commands are shown before execution and their real output is returned to the model.
+- Use CMD or PowerShell on Windows and Bash or Zsh on Linux. Administrator mode relies on UAC or the Linux authorization agent and never reads a password.
+- Keep file access project-only by default or deliberately authorize all filesystem roots. External changes always require review and Nova does not scan the full disk automatically.
 - Recover recent agent file operations from local snapshots.
 
 ## Security and privacy
 
 NovaAI Code is intentionally conservative about file access and commands:
 
-- It rejects absolute paths, `..` traversal, unsafe platform-specific names, symlink traversal, ignored folders, shell operators, and unrestricted system commands.
-- Agent changes stay inside the open project or an external folder you explicitly authorize.
+- Project-only mode rejects absolute paths, `..` traversal, unsafe platform-specific names, symlink traversal, ignored folders, shell operators, and unrestricted system commands.
+- Full filesystem access and unrestricted shells are separate, explicit opt-ins. Commands run with the selected operating-system account and administrator commands always require approval.
 - API keys are saved through the operating-system credential store and are not displayed after saving.
 - Cloud providers receive only the messages, attachments, and project context included in the request.
 

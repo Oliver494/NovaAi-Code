@@ -124,6 +124,7 @@ export type WebSearchResult = { query: string; sources: WebSearchSource[] };
 export type ContextReference = { path: string; startLine: number; endLine: number; truncated: boolean };
 export type AppliedChange = { type: "write" | "mkdir" | "rename" | "delete"; path: string; newPath?: string; before?: string; after?: string; truncated?: boolean };
 export type ExternalFolderGrant = { id: string; path: string; name: string; access: "read" | "write" };
+export type ComputerRoot = { id: string; path: string; name: string };
 
 export type Conversation = {
   id: string;
@@ -171,6 +172,15 @@ export type AiProjectAction = {
   content?: string;
   newPath?: string;
   rootId?: string;
+};
+
+export type AiTerminalAction = {
+  command?: string;
+  program?: string;
+  args?: string[];
+  cwd?: string;
+  rootId?: string;
+  purpose?: string;
 };
 
 export type RecoverySnapshotInfo = {

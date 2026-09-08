@@ -1911,6 +1911,13 @@ fn context_messages(
                 "\nCARPETA EXTERNA: {} | rootId: {} | permiso: {}\n",
                 folder.name, folder.id, folder.access
             ));
+            if folder.id.starts_with("computer-") {
+                context.push_str(&format!(
+                    "RAÍZ DEL EQUIPO: {}. El usuario activó acceso completo. No inventes haber inspeccionado el disco: usa esta raíz únicamente cuando el usuario indique una ruta concreta. En las acciones, usa rootId y una ruta relativa a esta raíz.\n",
+                    folder.path
+                ));
+                continue;
+            }
             context.push_str("ESTRUCTURA:\n");
             context.push_str(
                 &crate::project_context_tree(&folder.path, 32 * 1024).map_err(|message| {
@@ -1975,6 +1982,17 @@ fn context_messages(
         ));
     }
     context.push_str("\n\nEl contexto del proyecto puede ser irrelevante. Si el usuario solo saluda, conversa o no pide trabajar con el código, ignora los archivos y responde brevemente. No describas ni cambies el proyecto salvo que el usuario lo solicite explícitamente.");
+    if request.code_mode
+        && request.terminal_access != "disabled"
+        && !request.terminal_access.is_empty()
+    {
+        let operating_system = std::env::consts::OS;
+        if request.terminal_access == "project" {
+            context.push_str(&format!("\n\nTERMINAL SEGURA DISPONIBLE ({operating_system}): cuando necesites observar el sistema o ejecutar una prueba/compilación antes de responder, devuelve EXCLUSIVAMENTE <nova_terminal>{{\"program\":\"programa\",\"args\":[\"arg1\"],\"cwd\":\"ruta relativa opcional\",\"purpose\":\"motivo breve\"}}</nova_terminal>. Para conocer almacenamiento, RAM, CPU, GPU o sistema operativo usa preferentemente program \"nova-system-info\" con args vacíos. También se admiten npm, npx, pnpm, yarn, cargo, rustc, python, pytest, dotnet, go, java, mvn, gradle, git y las utilidades systeminfo/wmic en Windows o df/free/uname/ls/pwd/du en Linux. No uses una shell ni operadores. Nova ejecutará el comando tras mostrarlo al usuario y te devolverá la salida real."));
+        } else {
+            context.push_str(&format!("\n\nTERMINAL COMPLETA DISPONIBLE ({operating_system}, intérprete solicitado: {}): cuando necesites ejecutar un comando para completar la petición, devuelve EXCLUSIVAMENTE <nova_terminal>{{\"command\":\"comando completo\",\"cwd\":\"ruta relativa opcional\",\"rootId\":\"opcional para una raíz autorizada\",\"purpose\":\"motivo breve\"}}</nova_terminal>. Nova mostrará el comando al usuario, lo ejecutará con el nivel autorizado y te devolverá la salida real para que continúes. No afirmes que se ejecutó antes de recibir el resultado.", request.terminal_shell));
+        }
+    }
     if request.code_mode && request.can_edit {
         if !request.external_folders.is_empty() {
             context.push_str("\n\nPara modificar una carpeta adicional autorizada, añade el campo rootId con el identificador mostrado para esa carpeta. Solo puedes escribir en una carpeta cuyo permiso sea write; si es read, úsala únicamente como contexto.");
@@ -2313,6 +2331,8 @@ mod tests {
             workspace_access: true,
             can_edit: true,
             code_mode: true,
+            terminal_access: "project".into(),
+            terminal_shell: "automatic".into(),
         }
     }
 
@@ -2383,6 +2403,24 @@ mod tests {
         assert!(system.contains("rootId: external-notes"));
         assert!(system.contains("notes.md"));
         assert!(system.contains("permiso: read"));
+    }
+
+    #[test]
+    fn full_computer_root_is_authorized_without_scanning_the_disk() {
+        let project = tempfile::tempdir().unwrap();
+        let mut request = action_request(project.path().to_string_lossy().to_string());
+        request.external_folders = vec![ExternalFolderGrant {
+            id: "computer-root".into(),
+            path: "/".into(),
+            name: "Sistema de archivos".into(),
+            access: "write".into(),
+        }];
+
+        let (messages, _) = context_messages(&request).unwrap();
+        let system = &messages.first().unwrap().content;
+        assert!(system.contains("rootId: computer-root"));
+        assert!(system.contains("RAÍZ DEL EQUIPO: /"));
+        assert!(system.contains("No inventes haber inspeccionado el disco"));
     }
 
     #[tokio::test]

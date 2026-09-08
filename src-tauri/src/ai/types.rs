@@ -261,6 +261,10 @@ pub struct ChatRequest {
     pub can_edit: bool,
     #[serde(default)]
     pub code_mode: bool,
+    #[serde(default)]
+    pub terminal_access: String,
+    #[serde(default)]
+    pub terminal_shell: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
