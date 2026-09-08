@@ -42,7 +42,7 @@ type Props = {
 function visibleAnswer(content: string) {
   const blocks = [content.indexOf("<nova_actions>"), content.indexOf("<nova_terminal>")].filter((index) => index >= 0);
   const internalBlock = blocks.length ? Math.min(...blocks) : -1;
-  return (internalBlock >= 0 ? content.slice(0, internalBlock) : content).trim();
+  return (internalBlock >= 0 ? content.slice(0, internalBlock) : content).replace(/```(?:json)?\s*$/i, "").trim();
 }
 
 function proposedTerminal(content: string): AiTerminalAction | null {
@@ -55,7 +55,13 @@ function proposedTerminal(content: string): AiTerminalAction | null {
     if (!hasShellCommand && !hasSafeProgram) return null;
     if (value.cwd !== undefined && typeof value.cwd !== "string") return null;
     if (value.rootId !== undefined && typeof value.rootId !== "string") return null;
-    return value;
+    return {
+      ...value,
+      command: hasShellCommand ? value.command!.trim() : undefined,
+      program: hasSafeProgram ? value.program!.trim() : undefined,
+      cwd: value.cwd?.trim() || undefined,
+      rootId: value.rootId?.trim() || undefined,
+    };
   } catch { return null; }
 }
 

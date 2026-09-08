@@ -174,27 +174,33 @@ fn canonical_root(value: &str) -> Result<PathBuf, String> {
 }
 
 fn safe_cwd(root: &Path, relative: &str) -> Result<PathBuf, String> {
-    let relative = Path::new(relative);
-    if relative.is_absolute()
-        || relative.components().any(|part| {
-            matches!(
-                part,
-                std::path::Component::ParentDir
-                    | std::path::Component::Prefix(_)
-                    | std::path::Component::RootDir
-            )
-        })
-    {
-        return Err("La carpeta de ejecución intenta salir del proyecto.".into());
-    }
-    let cwd = root
-        .join(relative)
+    let requested = Path::new(relative.trim());
+    let candidate = if relative.trim().is_empty() {
+        root.to_path_buf()
+    } else if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        root.join(requested)
+    };
+    let cwd = candidate
         .canonicalize()
         .map_err(|_| "La carpeta de ejecución no existe.".to_string())?;
     if !cwd.starts_with(root) || !cwd.is_dir() {
-        return Err("La carpeta de ejecución está fuera del proyecto.".into());
+        return Err("La carpeta de ejecución está fuera de la ubicación autorizada.".into());
     }
     Ok(cwd)
+}
+
+fn is_system_info_request(request: &AgentCommandRequest) -> bool {
+    let has_shell_command = request
+        .command
+        .as_deref()
+        .is_some_and(|command| !command.trim().is_empty());
+    !has_shell_command
+        && request
+            .program
+            .trim()
+            .eq_ignore_ascii_case("nova-system-info")
 }
 
 fn allowed_program(value: &str) -> Option<&'static str> {
@@ -483,7 +489,7 @@ pub async fn run_agent_command(
     on_event: Channel<AgentCommandEvent>,
     runtime: State<'_, AgentRuntime>,
 ) -> Result<(), String> {
-    if request.command.is_none() && request.program.eq_ignore_ascii_case("nova-system-info") {
+    if is_system_info_request(&request) {
         if request.terminal_mode == "disabled" {
             return Err("La terminal está desactivada en Configuración > Terminal.".into());
         }
@@ -655,6 +661,30 @@ mod tests {
         assert!(shell_command(&terminal_request("shell", Some("echo test")))
             .unwrap()
             .is_some());
+    }
+    #[test]
+    fn system_info_accepts_an_empty_shell_field() {
+        let mut request = terminal_request("project", Some("   "));
+        request.program = " nova-system-info ".into();
+        request.cwd = std::env::current_dir()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        assert!(is_system_info_request(&request));
+    }
+    #[test]
+    fn absolute_working_directories_follow_the_authorized_root() {
+        let authorized = tempfile::tempdir().unwrap();
+        let authorized_root = authorized.path().canonicalize().unwrap();
+        let inside = authorized.path().join("inside");
+        std::fs::create_dir(&inside).unwrap();
+        assert_eq!(
+            safe_cwd(&authorized_root, &inside.to_string_lossy()).unwrap(),
+            inside.canonicalize().unwrap()
+        );
+
+        let outside = tempfile::tempdir().unwrap();
+        assert!(safe_cwd(&authorized_root, &outside.path().to_string_lossy()).is_err());
     }
     #[test]
     fn detects_project_commands_without_guessing() {
