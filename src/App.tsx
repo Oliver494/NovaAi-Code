@@ -23,6 +23,7 @@ import { FirstRunWizard, shouldShowFirstRun } from "./components/FirstRunWizard"
 import { ProviderPanel } from "./components/ProviderPanel";
 import { PreferencesPanel } from "./components/PreferencesPanel";
 import { ProjectSwitcher } from "./components/ProjectSwitcher";
+import { ProjectFolderDialog } from "./components/ProjectFolderDialog";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
 import { MediaStudio } from "./components/MediaStudio";
@@ -78,6 +79,10 @@ function App() {
   const [dialog, setDialog] = useState<DialogRequest | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
+  const [projectFolderDialogOpen, setProjectFolderDialogOpen] = useState(false);
+  const [projectFolderPath, setProjectFolderPath] = useState("");
+  const [projectFolderBusy, setProjectFolderBusy] = useState(false);
+  const [projectFolderError, setProjectFolderError] = useState<string | null>(null);
   const [notices, setNotices] = useState<Notice[]>([]);
   const scanRunning = useRef(false);
   const noticeId = useRef(1);
@@ -121,7 +126,7 @@ function App() {
   }, [notify, project]);
 
   const loadProject = useCallback(async (path: string, restoring = false) => {
-    if (hasDirtyFiles(openFiles) && !window.confirm("Hay archivos sin guardar. ¿Quieres cerrar el proyecto y descartar esos cambios?")) return;
+    if (hasDirtyFiles(openFiles) && !window.confirm("Hay archivos sin guardar. ¿Quieres cerrar el proyecto y descartar esos cambios?")) return false;
     setLoading(true);
     try {
       const info = await projectFiles.openProject(path);
@@ -134,12 +139,14 @@ function App() {
       setProjects((current) => rememberProject(current, info));
       localStorage.setItem(LAST_PROJECT_KEY, info.path);
       if (!restoring) notify("success", "Proyecto abierto");
+      return true;
     } catch (error) {
       if (restoring) {
         localStorage.removeItem(LAST_PROJECT_KEY);
         setProjects((current) => forgetProject(current, path));
       }
       notify("error", errorMessage(error));
+      return false;
     } finally {
       setLoading(false);
     }
@@ -168,11 +175,33 @@ function App() {
   }, [openFiles]);
 
   async function chooseFolder() {
+    setProjectFolderPath(project?.path ?? "");
+    setProjectFolderError(null);
+    setProjectFolderDialogOpen(true);
+  }
+
+  async function browseProjectFolder() {
     try {
       const path = await chooseProjectFolder();
-      if (path) await loadProject(path);
+      if (path) {
+        setProjectFolderPath(path);
+        setProjectFolderError(null);
+      }
     } catch (error) {
-      notify("error", errorMessage(error));
+      setProjectFolderError(errorMessage(error));
+    }
+  }
+
+  async function confirmProjectFolder() {
+    const path = projectFolderPath.trim();
+    if (!path || projectFolderBusy) return;
+    setProjectFolderBusy(true);
+    setProjectFolderError(null);
+    try {
+      if (await loadProject(path)) setProjectFolderDialogOpen(false);
+      else setProjectFolderError(t("No se pudo abrir esa carpeta. Comprueba la ruta y los permisos.", "Could not open that folder. Check the path and permissions."));
+    } finally {
+      setProjectFolderBusy(false);
     }
   }
 
@@ -370,6 +399,7 @@ function App() {
       <div className="notice-stack" aria-live="polite">{notices.map((notice) => <div key={notice.id} className={`notice notice--${notice.tone}`}>{notice.message}<button onClick={() => setNotices((current) => current.filter((item) => item.id !== notice.id))} aria-label={t("Cerrar aviso", "Dismiss notification")}><X size={14} /></button></div>)}</div>
       <UpdateBanner />
       {dialog && <ActionDialog request={dialog} busy={dialogBusy} error={dialogError} onCancel={() => !dialogBusy && setDialog(null)} onConfirm={(value) => void confirmDialog(value)} />}
+      {projectFolderDialogOpen && <ProjectFolderDialog path={projectFolderPath} busy={projectFolderBusy} error={projectFolderError} onPathChange={(value) => { setProjectFolderPath(value); setProjectFolderError(null); }} onBrowse={() => void browseProjectFolder()} onConfirm={() => void confirmProjectFolder()} onCancel={() => !projectFolderBusy && setProjectFolderDialogOpen(false)} />}
       {providerOpen && activeSettings && <ProviderPanel projectPath={assistantWorkspace === "code" ? project?.path ?? null : null} settings={activeSettings} onChange={assistantWorkspace === "code" ? setCodeSettings : setChatSettings} onClose={() => setProviderOpen(false)} />}
       {preferencesOpen && <PreferencesPanel projectPath={assistantWorkspace === "code" ? project?.path ?? null : null} settings={activeSettings} onFilesRestored={(paths) => { void reloadChangedFiles(paths); void refreshTree(true); notify("success", t("Proyecto restaurado", "Project restored")); }} onClose={() => setPreferencesOpen(false)} onOpenProviders={() => { setPreferencesOpen(false); setProviderOpen(true); }} />}
       {firstRunOpen && <FirstRunWizard hasProject={!!project} onAddProject={() => void chooseFolder()} onConfigure={() => setProviderOpen(true)} onClose={() => setFirstRunOpen(false)} />}
