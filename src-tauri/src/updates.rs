@@ -9,8 +9,8 @@ use url::Url;
 
 const RELEASES_API: &str =
     "https://api.github.com/repos/Oliver494/novaai-code/releases?per_page=30";
-const RELEASE_PATH_PREFIX: &str = "/Oliver494/novaai-code/releases/";
-const DOWNLOAD_PATH_PREFIX: &str = "/Oliver494/novaai-code/releases/download/";
+const RELEASE_PATH_PREFIX: &str = "/oliver494/novaai-code/releases/";
+const DOWNLOAD_PATH_PREFIX: &str = "/oliver494/novaai-code/releases/download/";
 const MAX_RESPONSE_BYTES: usize = 512 * 1024;
 const MAX_INSTALLER_BYTES: u64 = 1024 * 1024 * 1024;
 
@@ -93,7 +93,10 @@ fn is_official_release_url(value: &str) -> bool {
     Url::parse(value).is_ok_and(|url| {
         url.scheme() == "https"
             && url.host_str() == Some("github.com")
-            && url.path().starts_with(RELEASE_PATH_PREFIX)
+            && url
+                .path()
+                .to_ascii_lowercase()
+                .starts_with(RELEASE_PATH_PREFIX)
             && url.username().is_empty()
             && url.password().is_none()
     })
@@ -103,7 +106,10 @@ fn is_official_download_url(value: &str) -> bool {
     Url::parse(value).is_ok_and(|url| {
         url.scheme() == "https"
             && url.host_str() == Some("github.com")
-            && url.path().starts_with(DOWNLOAD_PATH_PREFIX)
+            && url
+                .path()
+                .to_ascii_lowercase()
+                .starts_with(DOWNLOAD_PATH_PREFIX)
             && url.username().is_empty()
             && url.password().is_none()
     })

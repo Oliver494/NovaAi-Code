@@ -621,6 +621,30 @@ pub async fn search_web(request: WebSearchRequest) -> Result<WebSearchResult, Di
         ));
     }
     let max_results = request.max_results.unwrap_or(4).clamp(1, 6);
+    if let Some(link) = query
+        .split_whitespace()
+        .find(|part| part.starts_with("https://") || part.starts_with("http://"))
+    {
+        let link = link.trim_end_matches([')', ']', ',', '.']);
+        let text = crate::web::read_public_page(link).await.map_err(|error| {
+            Diagnostic::new(
+                "WEB_READ_FAILED",
+                "No se pudo leer el enlace",
+                &error,
+                "La página no está disponible para lectura.",
+                "Comprueba el enlace o prueba otra fuente.",
+                true,
+            )
+        })?;
+        return Ok(WebSearchResult {
+            query: query.into(),
+            sources: vec![WebSearchSource {
+                title: link.into(),
+                url: link.into(),
+                snippet: text,
+            }],
+        });
+    }
     let encoded = url::form_urlencoded::byte_serialize(query.as_bytes()).collect::<String>();
     let client = Client::builder()
         .connect_timeout(Duration::from_secs(6))
@@ -645,9 +669,22 @@ pub async fn search_web(request: WebSearchRequest) -> Result<WebSearchResult, Di
     if !status.is_success() {
         return Err(http_error(status, &html, "la búsqueda web"));
     }
+    let mut sources = parse_web_search_results(&html, max_results);
+    let pages = futures_util::future::join_all(
+        sources
+            .iter()
+            .take(2)
+            .map(|source| crate::web::read_public_page(&source.url)),
+    )
+    .await;
+    for (source, page) in sources.iter_mut().zip(pages) {
+        if let Ok(text) = page {
+            source.snippet = text;
+        }
+    }
     Ok(WebSearchResult {
         query: query.to_string(),
-        sources: parse_web_search_results(&html, max_results),
+        sources,
     })
 }
 
@@ -1988,9 +2025,9 @@ fn context_messages(
     {
         let operating_system = std::env::consts::OS;
         if request.terminal_access == "project" {
-            context.push_str(&format!("\n\nTERMINAL SEGURA DISPONIBLE ({operating_system}): cuando necesites observar el sistema o ejecutar una prueba/compilación antes de responder, devuelve EXCLUSIVAMENTE <nova_terminal>{{\"program\":\"programa\",\"args\":[\"arg1\"],\"cwd\":\"ruta relativa opcional\",\"purpose\":\"motivo breve\"}}</nova_terminal>. Para conocer almacenamiento, RAM, CPU, GPU o sistema operativo usa preferentemente program \"nova-system-info\" con args vacíos. También se admiten npm, npx, pnpm, yarn, cargo, rustc, python, pytest, dotnet, go, java, mvn, gradle, git y las utilidades systeminfo/wmic en Windows o df/free/uname/ls/pwd/du en Linux. No uses una shell ni operadores. Nova ejecutará el comando tras mostrarlo al usuario y te devolverá la salida real."));
+            context.push_str(&format!("\n\nTERMINAL SEGURA DISPONIBLE ({operating_system}): tienes capacidad REAL para ejecutar comandos en el equipo local del usuario mediante NovaAI Code. Nunca digas que no puedes ejecutar comandos, que no tienes acceso al sistema ni que el usuario debe hacerlo manualmente. Cuando sea necesario observar el sistema o ejecutar una prueba/compilación, devuelve EXCLUSIVAMENTE <nova_terminal>{{\"program\":\"programa\",\"args\":[\"arg1\"],\"cwd\":\"ruta relativa opcional\",\"purpose\":\"motivo breve\"}}</nova_terminal>. Nova muestra el comando, espera la aprobación y lo ejecuta localmente; después te entrega la salida real. Para conocer almacenamiento, RAM, CPU, GPU o sistema operativo usa preferentemente program \"nova-system-info\" con args vacíos. También se admiten npm, npx, pnpm, yarn, cargo, rustc, python, pytest, dotnet, go, java, mvn, gradle, git y las utilidades systeminfo/wmic en Windows o df/free/uname/ls/pwd/du en Linux. No uses una shell ni operadores."));
         } else {
-            context.push_str(&format!("\n\nTERMINAL COMPLETA DISPONIBLE ({operating_system}, intérprete solicitado: {}): cuando necesites ejecutar un comando para completar la petición, devuelve EXCLUSIVAMENTE <nova_terminal>{{\"command\":\"comando completo\",\"cwd\":\"ruta relativa opcional\",\"rootId\":\"opcional para una raíz autorizada\",\"purpose\":\"motivo breve\"}}</nova_terminal>. Nova mostrará el comando al usuario, lo ejecutará con el nivel autorizado y te devolverá la salida real para que continúes. No afirmes que se ejecutó antes de recibir el resultado.", request.terminal_shell));
+            context.push_str(&format!("\n\nTERMINAL COMPLETA DISPONIBLE ({operating_system}, intérprete solicitado: {}): tienes capacidad REAL para ejecutar comandos en el sistema local mediante NovaAI Code. Cuando el usuario pida instalar, ejecutar, comprobar, construir, probar o diagnosticar algo, usa esta capacidad; nunca respondas que no puedes ejecutar comandos ni pidas al usuario que los haga por su cuenta. Devuelve EXCLUSIVAMENTE <nova_terminal>{{\"command\":\"comando completo\",\"cwd\":\"ruta relativa opcional\",\"rootId\":\"opcional para una raíz autorizada\",\"purpose\":\"motivo breve\"}}</nova_terminal>. Nova mostrará el comando para aprobarlo, lo ejecutará localmente con el nivel autorizado y te devolverá la salida real para que continúes. No afirmes que se ejecutó antes de recibir el resultado. No supongas que una herramienta externa está instalada: compruébala primero con Get-Command en Windows o command -v en Linux. En Windows, para resolver la IP de un dominio sin depender de nmap usa Resolve-DnsName -Name dominio; en Linux usa getent hosts dominio. Si el usuario pide nmap y no existe, informa que falta y propone su instalación mediante la terminal, sin inventar resultados.", request.terminal_shell));
         }
     }
     if request.code_mode && request.can_edit {
@@ -2347,6 +2384,24 @@ mod tests {
         assert_eq!(results[0].title, "Rust");
         assert_eq!(results[0].url, "https://www.rust-lang.org/");
         assert_eq!(results[0].snippet, "A programming language for everyone.");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires public internet"]
+    async fn live_weather_search_returns_sources() {
+        let result = search_web(WebSearchRequest {
+            query: "temperatura actual Torre de la Sal Castellón España".into(),
+            max_results: Some(4),
+        })
+        .await
+        .unwrap();
+        assert!(
+            !result.sources.is_empty(),
+            "The search engine returned no usable sources"
+        );
+        for source in result.sources {
+            println!("{}: {} characters", source.url, source.snippet.len());
+        }
     }
 
     #[test]

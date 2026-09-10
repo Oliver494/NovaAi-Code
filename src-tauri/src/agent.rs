@@ -7,7 +7,7 @@ use std::{
 };
 use tauri::{ipc::Channel, State};
 use tokio::{
-    io::{AsyncBufReadExt, BufReader},
+    io::{AsyncRead, AsyncReadExt},
     process::Command,
     sync::{mpsc, Mutex},
 };
@@ -15,6 +15,38 @@ use tokio_util::sync::CancellationToken;
 
 const MAX_OUTPUT_BYTES: usize = 512 * 1024;
 const MAX_COMMAND_SECS: u64 = 900;
+
+// Some Windows installers (including Nmap) do not add their program folder to
+// PATH. Make commonly used local tools available to Nova's child process only;
+// this does not alter the user's global Windows configuration.
+#[cfg(target_os = "windows")]
+fn add_known_windows_tool_paths(process: &mut Command) {
+    let tool_paths = [
+        PathBuf::from(r"C:\Program Files\Nmap"),
+        PathBuf::from(r"C:\Program Files (x86)\Nmap"),
+    ];
+    let mut paths: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|value| std::env::split_paths(&value).collect())
+        .unwrap_or_default();
+    let mut changed = false;
+    for path in tool_paths {
+        if path.join("nmap.exe").is_file()
+            && !paths.iter().any(|existing| {
+                existing
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(&path.to_string_lossy())
+            })
+        {
+            paths.push(path);
+            changed = true;
+        }
+    }
+    if changed {
+        if let Ok(value) = std::env::join_paths(paths) {
+            process.env("PATH", value);
+        }
+    }
+}
 
 pub struct AgentRuntime {
     active: Mutex<HashMap<String, CancellationToken>>,
@@ -291,7 +323,11 @@ fn validate_args(args: &[String]) -> Result<(), String> {
 }
 
 fn shell_command(request: &AgentCommandRequest) -> Result<Option<(String, Vec<String>)>, String> {
-    let Some(command) = request.command.as_deref() else {
+    let Some(command) = request
+        .command
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    else {
         return Ok(None);
     };
     if !matches!(request.terminal_mode.as_str(), "shell" | "admin") {
@@ -300,7 +336,6 @@ fn shell_command(request: &AgentCommandRequest) -> Result<Option<(String, Vec<St
     if command.trim().is_empty() || command.len() > 8_000 || command.contains('\0') {
         return Err("El comando de terminal está vacío o es demasiado largo.".into());
     }
-    let admin = request.terminal_mode == "admin";
     #[cfg(target_os = "windows")]
     {
         let selected = match request.shell.as_str() {
@@ -308,30 +343,6 @@ fn shell_command(request: &AgentCommandRequest) -> Result<Option<(String, Vec<St
             "powershell" | "automatic" | "" => "powershell",
             _ => return Err("Ese intérprete no está disponible en Windows.".into()),
         };
-        if admin {
-            use base64::{engine::general_purpose::STANDARD, Engine};
-            let payload = if selected == "cmd" {
-                format!("cmd.exe /D /S /C \"{}\"", command.replace('"', "\\\""))
-            } else {
-                command.to_string()
-            };
-            let utf16 = payload
-                .encode_utf16()
-                .flat_map(u16::to_le_bytes)
-                .collect::<Vec<_>>();
-            let encoded = STANDARD.encode(utf16);
-            let elevation = format!("Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -ArgumentList '-NoProfile','-EncodedCommand','{}'", encoded);
-            return Ok(Some((
-                "powershell.exe".into(),
-                vec![
-                    "-NoLogo".into(),
-                    "-NoProfile".into(),
-                    "-NonInteractive".into(),
-                    "-Command".into(),
-                    elevation,
-                ],
-            )));
-        }
         return Ok(Some(if selected == "cmd" {
             (
                 "cmd.exe".into(),
@@ -345,7 +356,7 @@ fn shell_command(request: &AgentCommandRequest) -> Result<Option<(String, Vec<St
                     "-NoProfile".into(),
                     "-NonInteractive".into(),
                     "-Command".into(),
-                    command.into(),
+                    format!("[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); $OutputEncoding = [Console]::OutputEncoding; $ErrorActionPreference = 'Stop'; {command}\nif (-not $?) {{ exit 1 }}; if ($null -ne $LASTEXITCODE) {{ exit $LASTEXITCODE }}"),
                 ],
             )
         }));
@@ -360,14 +371,7 @@ fn shell_command(request: &AgentCommandRequest) -> Result<Option<(String, Vec<St
         if !Path::new(shell).is_file() {
             return Err(format!("No se encontró {shell} en este equipo."));
         }
-        return Ok(Some(if admin {
-            (
-                "pkexec".into(),
-                vec![shell.into(), "-lc".into(), command.into()],
-            )
-        } else {
-            (shell.into(), vec!["-lc".into(), command.into()])
-        }));
+        return Ok(Some((shell.into(), vec!["-lc".into(), command.into()])));
     }
 }
 
@@ -489,6 +493,14 @@ pub async fn run_agent_command(
     on_event: Channel<AgentCommandEvent>,
     runtime: State<'_, AgentRuntime>,
 ) -> Result<(), String> {
+    run_command_inner(request, on_event, &runtime).await
+}
+
+async fn run_command_inner(
+    request: AgentCommandRequest,
+    on_event: Channel<AgentCommandEvent>,
+    runtime: &AgentRuntime,
+) -> Result<(), String> {
     if is_system_info_request(&request) {
         if request.terminal_mode == "disabled" {
             return Err("La terminal está desactivada en Configuración > Terminal.".into());
@@ -527,11 +539,26 @@ pub async fn run_agent_command(
         if request.terminal_mode == "disabled" {
             return Err("La terminal está desactivada en Configuración > Terminal.".into());
         }
-        validate_args(&request.args)?;
-        let program = allowed_program(&request.program).ok_or_else(|| {
-            "El programa solicitado no está en la lista segura de NovaAI Code.".to_string()
-        })?;
-        (program.to_string(), request.args.clone())
+        if matches!(request.terminal_mode.as_str(), "shell" | "admin") {
+            if request.program.trim().is_empty()
+                || request.program.contains('\0')
+                || request.args.iter().any(|arg| arg.contains('\0'))
+            {
+                return Err("El programa o sus argumentos no son válidos.".into());
+            }
+            (
+                allowed_program(&request.program)
+                    .unwrap_or(request.program.trim())
+                    .to_string(),
+                request.args.clone(),
+            )
+        } else {
+            validate_args(&request.args)?;
+            let program = allowed_program(&request.program).ok_or_else(|| {
+                "El programa solicitado no está en la lista segura de NovaAI Code.".to_string()
+            })?;
+            (program.to_string(), request.args.clone())
+        }
     };
     if request.request_id.trim().is_empty() {
         return Err("Falta el identificador del proceso.".into());
@@ -551,49 +578,58 @@ pub async fn run_agent_command(
         .to_string();
     let _ = on_event.send(AgentCommandEvent::Started { command: display });
     let started = Instant::now();
-    let mut child = Command::new(program)
+    let mut process = Command::new(program);
+    process
         .args(&args)
         .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|e| format!("No se pudo iniciar el comando: {e}"))?;
+        .kill_on_drop(true);
+    #[cfg(target_os = "windows")]
+    add_known_windows_tool_paths(&mut process);
+    // Nova captures stdout/stderr and renders it in its own task card. Avoid
+    // flashing a separate CMD/PowerShell window for terminal commands.
+    #[cfg(target_os = "windows")]
+    process.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    #[cfg(unix)]
+    process.process_group(0);
+    let mut child = match process.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            runtime.active.lock().await.remove(&request.request_id);
+            return Err(format!("No se pudo iniciar el comando: {error}"));
+        }
+    };
     let (tx, mut rx) = mpsc::unbounded_channel::<(String, String)>();
     if let Some(pipe) = child.stdout.take() {
-        let tx = tx.clone();
-        tokio::spawn(async move {
-            let mut lines = BufReader::new(pipe).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let _ = tx.send(("stdout".into(), format!("{line}\n")));
-            }
-        });
+        tokio::spawn(read_output(pipe, tx.clone(), "stdout"));
     }
     if let Some(pipe) = child.stderr.take() {
-        let tx = tx.clone();
-        tokio::spawn(async move {
-            let mut lines = BufReader::new(pipe).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let _ = tx.send(("stderr".into(), format!("{line}\n")));
-            }
-        });
+        tokio::spawn(read_output(pipe, tx.clone(), "stderr"));
     }
     drop(tx);
     let mut output = 0usize;
     let mut truncated = false;
+    let mut pipes_open = true;
+    let mut process_done = false;
+    let mut exit_code = None;
+    let mut timed_out = false;
     let deadline = tokio::time::sleep(Duration::from_secs(timeout));
     tokio::pin!(deadline);
     let exit = loop {
         tokio::select! {
-            _=token.cancelled()=>{ let _=child.kill().await; let _=on_event.send(AgentCommandEvent::Cancelled); break None; }
-            _=&mut deadline=>{ let _=child.kill().await; let _=on_event.send(AgentCommandEvent::Error{code:"COMMAND_TIMEOUT".into(),title:"El comando tardó demasiado".into(),explanation:format!("Superó el límite de {timeout} segundos."),action:"Reduce la tarea o aumenta el límite permitido.".into()}); break None; }
-            item=rx.recv()=>{ if let Some((stream,text))=item { if output < MAX_OUTPUT_BYTES { let remaining=MAX_OUTPUT_BYTES-output; let sent:String=text.chars().take(remaining).collect(); output+=sent.len(); let _=on_event.send(AgentCommandEvent::Output{stream,text:sent}); } else { truncated=true; } } }
-            status=child.wait()=>{ break status.ok().and_then(|s|s.code()); }
+            _=token.cancelled()=>{ terminate_command(&mut child).await; let _=on_event.send(AgentCommandEvent::Cancelled); break None; }
+            _=&mut deadline=>{ timed_out = true; terminate_command(&mut child).await; let _=on_event.send(AgentCommandEvent::Error{code:"COMMAND_TIMEOUT".into(),title:"El comando tardó demasiado".into(),explanation:format!("Superó el límite de {timeout} segundos."),action:"Reduce la tarea o aumenta el límite permitido.".into()}); break None; }
+            item=rx.recv(), if pipes_open =>{ if let Some((stream,text))=item { if output < MAX_OUTPUT_BYTES { let remaining=MAX_OUTPUT_BYTES-output; let mut end=text.len().min(remaining); while !text.is_char_boundary(end) { end-=1; } let sent=text[..end].to_string(); truncated |= end < text.len(); output+=sent.len(); let _=on_event.send(AgentCommandEvent::Output{stream,text:sent}); } else { truncated=true; } } else { pipes_open=false; } }
+            status=child.wait(), if !process_done =>{ exit_code=status.ok().and_then(|s|s.code()); process_done=true; }
+        }
+        if process_done && !pipes_open {
+            break exit_code;
         }
     };
     runtime.active.lock().await.remove(&request.request_id);
-    if !token.is_cancelled() {
+    if !token.is_cancelled() && !timed_out {
         let _ = on_event.send(AgentCommandEvent::Finished {
             exit_code: exit,
             duration_ms: started.elapsed().as_millis() as u64,
@@ -601,6 +637,68 @@ pub async fn run_agent_command(
         });
     }
     Ok(())
+}
+
+async fn terminate_command(child: &mut tokio::process::Child) {
+    if let Some(id) = child.id() {
+        #[cfg(target_os = "windows")]
+        {
+            let mut command = Command::new("taskkill.exe");
+            command
+                .args(["/PID", &id.to_string(), "/T", "/F"])
+                .creation_flags(0x0800_0000)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .kill_on_drop(true);
+            let _ = tokio::time::timeout(Duration::from_secs(3), command.status()).await;
+        }
+        #[cfg(unix)]
+        {
+            let _ = Command::new("/bin/kill")
+                .args(["-KILL", "--", &format!("-{id}")])
+                .status()
+                .await;
+        }
+    }
+    let _ = child.kill().await;
+}
+
+async fn read_output<R: AsyncRead + Unpin>(
+    mut pipe: R,
+    tx: mpsc::UnboundedSender<(String, String)>,
+    stream: &'static str,
+) {
+    let mut buffer = [0u8; 4096];
+    let mut pending = Vec::new();
+    while let Ok(size) = pipe.read(&mut buffer).await {
+        if size == 0 {
+            break;
+        }
+        pending.extend_from_slice(&buffer[..size]);
+        let end = match std::str::from_utf8(&pending) {
+            Ok(_) => pending.len(),
+            Err(error) if error.error_len().is_none() => error.valid_up_to(),
+            Err(_) => pending.len(),
+        };
+        if end > 0 {
+            if tx
+                .send((
+                    stream.into(),
+                    String::from_utf8_lossy(&pending[..end]).into_owned(),
+                ))
+                .is_err()
+            {
+                return;
+            }
+            pending.drain(..end);
+        }
+    }
+    if !pending.is_empty() {
+        let _ = tx.send((
+            stream.into(),
+            String::from_utf8_lossy(&pending).into_owned(),
+        ));
+    }
 }
 
 #[tauri::command]
@@ -619,6 +717,157 @@ pub async fn cancel_agent_command(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn capture_events() -> (
+        Channel<AgentCommandEvent>,
+        std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+    ) {
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured = events.clone();
+        let channel = Channel::new(move |body| {
+            if let tauri::ipc::InvokeResponseBody::Json(text) = body {
+                captured
+                    .lock()
+                    .unwrap()
+                    .push(serde_json::from_str(&text).unwrap());
+            }
+            Ok(())
+        });
+        (channel, events)
+    }
+
+    #[tokio::test]
+    async fn detected_project_check_runs_in_a_directory_with_spaces() {
+        let temporary = tempfile::Builder::new()
+            .prefix("nova npm project ")
+            .tempdir()
+            .unwrap();
+        std::fs::write(
+            temporary.path().join("package.json"),
+            r#"{"scripts":{"test":"node -e \"console.log('project-check-ok')\""}}"#,
+        )
+        .unwrap();
+        let root = temporary.path().to_string_lossy().into_owned();
+        let detected = detect_project_commands(root.clone()).unwrap();
+        let task = detected.iter().find(|task| task.id == "npm-test").unwrap();
+        let mut request = terminal_request("project", Some(""));
+        request.root = root;
+        request.program = task.program.clone();
+        request.args = task.args.clone();
+        let (channel, events) = capture_events();
+        run_command_inner(request, channel, &AgentRuntime::default())
+            .await
+            .unwrap();
+        let events = events.lock().unwrap();
+        assert_eq!(events.last().unwrap()["exitCode"], 0);
+        assert!(events.iter().any(|event| event["text"]
+            .as_str()
+            .unwrap_or("")
+            .contains("project-check-ok")));
+    }
+
+    #[tokio::test]
+    async fn runner_drains_stdout_stderr_and_retains_failure_code_in_spaced_cwd() {
+        let temporary = tempfile::Builder::new()
+            .prefix("nova project with spaces ")
+            .tempdir()
+            .unwrap();
+        let runtime = AgentRuntime::default();
+        let command = if cfg!(windows) {
+            "Write-Output (Get-Location).Path; 1..300 | ForEach-Object { Write-Output $_ }; [Console]::Error.Write('failure'); exit 7"
+        } else {
+            "pwd; seq 1 300; printf failure >&2; exit 7"
+        };
+        let mut request = terminal_request("shell", Some(command));
+        request.root = temporary.path().to_string_lossy().into_owned();
+        let (channel, events) = capture_events();
+        run_command_inner(request, channel, &runtime).await.unwrap();
+        let events = events.lock().unwrap();
+        let output: String = events
+            .iter()
+            .filter_map(|event| event["text"].as_str())
+            .collect();
+        assert!(output.contains("nova project with spaces"));
+        assert!(output.contains("300"));
+        assert!(output.contains("failure"));
+        assert_eq!(events.last().unwrap()["exitCode"], 7);
+        assert!(runtime.active.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn failed_spawn_releases_runtime_and_empty_command_uses_program() {
+        let temporary = tempfile::tempdir().unwrap();
+        let runtime = AgentRuntime::default();
+        let mut request = terminal_request("shell", Some(""));
+        request.root = temporary.path().to_string_lossy().into_owned();
+        request.program = "nova-nonexistent-test-executable".into();
+        let (channel, _) = capture_events();
+        assert!(run_command_inner(request, channel, &runtime).await.is_err());
+        assert!(runtime.active.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn timeout_emits_error_without_false_finished_event() {
+        let temporary = tempfile::tempdir().unwrap();
+        let runtime = AgentRuntime::default();
+        let mut request = terminal_request(
+            "shell",
+            Some(if cfg!(windows) {
+                "Start-Sleep 15"
+            } else {
+                "sleep 15"
+            }),
+        );
+        request.root = temporary.path().to_string_lossy().into_owned();
+        request.timeout_secs = 1;
+        let (channel, events) = capture_events();
+        run_command_inner(request, channel, &runtime).await.unwrap();
+        let events = events.lock().unwrap();
+        assert!(events
+            .iter()
+            .any(|event| event["code"] == "COMMAND_TIMEOUT"));
+        assert!(!events.iter().any(|event| event["type"] == "finished"));
+        assert!(runtime.active.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancellation_isolated_from_next_command() {
+        let temporary = tempfile::tempdir().unwrap();
+        let runtime = AgentRuntime::default();
+        let mut request = terminal_request(
+            "shell",
+            Some(if cfg!(windows) {
+                "Start-Sleep 15"
+            } else {
+                "sleep 15"
+            }),
+        );
+        request.root = temporary.path().to_string_lossy().into_owned();
+        let (channel, events) = capture_events();
+        let cancel = async {
+            for _ in 0..200 {
+                if let Some(token) = runtime.active.lock().await.values().next() {
+                    token.cancel();
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            panic!("command did not start");
+        };
+        let (result, _) = tokio::join!(run_command_inner(request, channel, &runtime), cancel);
+        result.unwrap();
+        assert!(events
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|event| event["type"] == "cancelled"));
+        assert!(runtime.active.lock().await.is_empty());
+        let mut next = terminal_request("shell", Some("echo ready"));
+        next.root = temporary.path().to_string_lossy().into_owned();
+        let (channel, events) = capture_events();
+        run_command_inner(next, channel, &runtime).await.unwrap();
+        assert_eq!(events.lock().unwrap().last().unwrap()["exitCode"], 0);
+    }
 
     fn terminal_request(mode: &str, command: Option<&str>) -> AgentCommandRequest {
         AgentCommandRequest {

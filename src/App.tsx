@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
+import "./workspace-polish.css";
 import novaLogo from "./assets/nova.png";
 import { ActionDialog, type DialogRequest } from "./components/ActionDialog";
 import { NovaChatWorkspace } from "./components/NovaChatWorkspace";

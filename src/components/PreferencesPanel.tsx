@@ -53,7 +53,7 @@ export function PreferencesPanel({ onClose, onOpenProviders, projectPath, settin
           {navigation.map((item) => {
             const Icon = item.icon;
             const active = item.id === section;
-            return <button type="button" key={item.id} className={active ? "is-active" : ""} aria-current={active ? "page" : undefined} onClick={() => item.id === "providers" ? onOpenProviders() : setSection(item.id)}><Icon size={18} /><span><strong>{item.label}</strong><small>{item.description}</small></span>{item.id === "providers" ? <ChevronRight size={16} /> : active ? <span className="preferences-navigation__active" /> : null}</button>;
+            return <button type="button" key={item.id} title={item.label} aria-label={item.label} className={active ? "is-active" : ""} aria-current={active ? "page" : undefined} onClick={() => item.id === "providers" ? onOpenProviders() : setSection(item.id)}><Icon size={18} /><span><strong>{item.label}</strong><small>{item.description}</small></span>{item.id === "providers" ? <ChevronRight size={16} /> : active ? <span className="preferences-navigation__active" /> : null}</button>;
           })}
         </nav>
         <main className="preferences-content">

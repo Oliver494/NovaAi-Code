@@ -1,0 +1,62 @@
+/* Shared controls: neutral surfaces, one accent for the primary action. */
+.chat-header__actions { gap: 8px; }
+.chat-header__actions .approval-control { display: none; } /* permission control lives beside Send */
+.chat-header__actions .terminal-launch-button { width: 34px; height: 34px; padding: 0; display: grid; place-items: center; color: var(--text-soft); background: transparent; border: 1px solid transparent; border-radius: 8px; }
+.chat-header__actions .terminal-launch-button:hover,
+.chat-header__actions .terminal-launch-button[aria-pressed="true"] { color: var(--text); background: var(--panel-soft); border-color: var(--border); }
+.icon-button:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid var(--nova); outline-offset: 2px; }
+button:disabled { cursor: default; opacity: .5; }
+.chat-composer footer { gap: 8px; flex-wrap: wrap; }
+.composer-actions { min-width: 0; flex-wrap: wrap; gap: 6px; }
+.composer-actions .approval-control { max-width: 175px; }
+.chat-provider { min-width: 0; }
+.chat-provider strong, .chat-provider span { overflow: hidden; text-overflow: ellipsis; }
+.preferences-panel, .provider-panel { border-radius: 14px; border: 1px solid var(--border-strong); }
+.preferences-navigation button { border-radius: 8px; }
+.preferences-navigation button.is-active { color: var(--text); background: var(--panel-soft); }
+.preferences-navigation button small { line-height: 1.4; }
+.preferences-content { min-width: 0; overscroll-behavior: contain; }
+.preference-section { line-height: 1.5; }
+.provider-panel input, .provider-panel select { min-height: 36px; font-size: 13px; }
+.provider-panel .secondary-button { min-height: 34px; }
+.update-settings { gap: 16px; }
+.update-settings__summary, .update-settings__status { padding: 12px; border-radius: 10px; }
+.update-settings__summary { flex-wrap: wrap; }
+.update-settings__summary strong { font-size: 14px; }
+.update-settings__actions { flex-wrap: wrap; justify-content: flex-start; gap: 8px; }
+.update-settings__actions button { min-height: 34px; font-size: 13px; }
+.update-banner { padding: 16px; gap: 12px; }
+.update-banner__content button { height: auto; min-height: 34px; padding: 6px 10px; }
+
+/* The command runner is docked to its conversation, and follows both themes. */
+.nova-terminal-dock { min-height: 180px; max-height: 65vh; color: var(--text); background: var(--bg); border-top: 1px solid var(--border-strong); box-shadow: none; }
+.nova-terminal-dock > header { height: 42px; flex-basis: 42px; padding: 0 12px; background: var(--panel); border-bottom-color: var(--border); }
+.nova-terminal-dock > header > div { color: var(--text-soft); }
+.nova-terminal-dock header strong { color: var(--text); font-size: 13px; }
+.nova-terminal-dock header small { color: var(--text-muted); font-size: 11px; }
+.nova-terminal-dock .icon-button { width: 30px; height: 30px; color: var(--text-soft); }
+.nova-terminal-dock .icon-button:hover { color: var(--text); background: var(--panel-soft); }
+.nova-terminal-dock .nova-terminal-output { color: var(--text); font-size: 13px; line-height: 1.65; padding: 16px; scrollbar-color: var(--border-strong) transparent; }
+.nova-terminal-dock .nova-terminal-output::-webkit-scrollbar-thumb { background: var(--border-strong); border-color: var(--bg); }
+.nova-terminal-dock .nova-terminal-input { background: var(--bg); border-top-color: var(--border); padding: 10px 14px; }
+.nova-terminal-dock .nova-terminal-input > span { color: var(--text-muted); }
+.nova-terminal-dock .nova-terminal-input textarea { height: 36px; color: var(--text); background: var(--bg); border-color: transparent; font-size: 13px; }
+.nova-terminal-dock .nova-terminal-input textarea:focus { border-color: var(--border-strong); box-shadow: none; }
+.nova-terminal-dock .secondary-button { min-height: 30px; color: var(--text); background: var(--panel-soft); border: 1px solid var(--border); font-size: 12px; }
+.nova-terminal-dock > footer { min-height: 30px; flex-basis: 30px; color: var(--text-soft); background: var(--panel); border-top-color: var(--border); font-size: 11px; }
+.nova-terminal-dock > footer small { color: var(--text-muted); white-space: nowrap; }
+.nova-terminal-dock .nova-terminal-warning { margin: 12px; color: var(--text-soft); background: var(--panel); border-color: var(--border); }
+.nova-terminal-resize::after, .nova-terminal-resize:hover::after { background: var(--border-strong); }
+.terminal-error { color: var(--danger); }
+.terminal-command { color: var(--text); font-weight: 650; }
+@media (max-width: 900px) {
+  .chat-connection { font-size: 0; gap: 4px; }
+  .chat-header { padding-inline: 12px; }
+  .nova-terminal-dock header span { display: grid; gap: 0; }
+  .nova-terminal-dock header small { max-width: 42vw; }
+  .preferences-navigation button small { display: none; }
+  .update-settings__channel { flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0s !important; }
+}

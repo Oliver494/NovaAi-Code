@@ -18,6 +18,7 @@ mod git;
 mod linux_compat;
 mod system;
 mod updates;
+mod web;
 
 const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_TREE_DEPTH: usize = 32;

@@ -115,6 +115,7 @@ export type ChatMessage = {
   appliedChanges?: AppliedChange[];
   generatedMedia?: MediaGenerationResult;
   webSearchAttempted?: boolean;
+  webSearchError?: string;
   webSources?: WebSearchSource[];
 };
 
