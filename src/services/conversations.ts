@@ -80,7 +80,7 @@ export function loadConversations(projectPath: string | null, mode: Conversation
       .filter((item) => (item.assistantMode === "chat" ? "chat" : "code") === mode)
       .map((item) => ({ ...item, projectPath: mode === "chat" ? null : projectPath, assistantMode: mode }));
 
-    // A project could previously contain a NovaAI chat. Move a copy into the
+    // A project could previously contain a Vareliox Chat chat. Move a copy into the
     // global chat workspace while preserving the legacy source as a backup.
     if (mode === "code") {
       const globalKey = storageKey("chat", null);

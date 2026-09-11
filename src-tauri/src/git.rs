@@ -38,7 +38,7 @@ fn nul_paths(bytes: &[u8]) -> Result<Vec<String>, String> {
         .map(|path| {
             std::str::from_utf8(path)
                 .map(|path| path.replace('\\', "/"))
-                .map_err(|_| "Git devolvió una ruta que Nova no puede representar.".to_string())
+                .map_err(|_| "Git devolvió una ruta que Vareliox no puede representar.".to_string())
         })
         .collect()
 }
@@ -131,7 +131,7 @@ pub(crate) async fn git_diff(root: String) -> Result<String, String> {
         return Ok(text);
     }
     let mut truncated = text.chars().take(MAX_GIT_OUTPUT).collect::<String>();
-    truncated.push_str("\n[Diff truncado por NovaAI Code]\n");
+    truncated.push_str("\n[Diff truncado por Vareliox Code]\n");
     Ok(truncated)
 }
 
@@ -235,7 +235,7 @@ async fn git_discard_changes_inner(
     }
     if changed.len() > 1_000 {
         return Err(
-            "Hay más de 1.000 rutas modificadas. Nova canceló el descarte para proteger el proyecto."
+            "Hay más de 1.000 rutas modificadas. Vareliox canceló el descarte para proteger el proyecto."
                 .into(),
         );
     }
@@ -303,7 +303,9 @@ async fn git_discard_changes_inner(
             let rollback = crate::restore_recovery_snapshot(&root, &snapshot_dir, &manifest);
             crate::append_action_log(&recovery_dir, &manifest, "git_discard_failed");
             match rollback {
-                Ok(_) => Err(format!("{error} Nova restauró la copia de recuperación.")),
+                Ok(_) => Err(format!(
+                    "{error} Vareliox restauró la copia de recuperación."
+                )),
                 Err(rollback_error) => Err(format!(
                     "{error} La recuperación automática también falló: {rollback_error}"
                 )),
@@ -353,7 +355,7 @@ mod tests {
         if run(&["init"]).is_err() {
             return;
         }
-        assert!(run(&["config", "user.name", "Nova Test"])
+        assert!(run(&["config", "user.name", "Vareliox Test"])
             .unwrap()
             .status
             .success());
@@ -386,7 +388,9 @@ mod tests {
         if !run(&["init"]).status.success() {
             return;
         }
-        assert!(run(&["config", "user.name", "Nova Test"]).status.success());
+        assert!(run(&["config", "user.name", "Vareliox Test"])
+            .status
+            .success());
         assert!(run(&["config", "user.email", "nova@example.invalid"])
             .status
             .success());

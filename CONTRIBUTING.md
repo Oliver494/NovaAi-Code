@@ -1,6 +1,6 @@
-# Contributing to NovaAI Code
+# Contributing to Vareliox
 
-Thank you for helping improve NovaAI Code.
+Thank you for helping improve Vareliox.
 
 ## Before starting
 

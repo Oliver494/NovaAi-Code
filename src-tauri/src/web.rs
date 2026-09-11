@@ -97,7 +97,7 @@ async fn fetch_page(value: &str) -> Result<String, String> {
             .redirect(reqwest::redirect::Policy::none())
             .resolve_to_addrs(host, &addresses)
             .timeout(Duration::from_secs(10))
-            .user_agent("NovaAI-Code (public page reader)")
+            .user_agent("Vareliox (public page reader)")
             .build()
             .map_err(|e| e.to_string())?;
         let response = client

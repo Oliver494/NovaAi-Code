@@ -71,7 +71,7 @@ pub(crate) fn configure_webview_runtime() {
             set_if_missing("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
             set_if_missing("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
             eprintln!(
-                "NovaAI Code: compatible WebKitGTK rendering enabled for this virtual machine."
+                "Vareliox Code: compatible WebKitGTK rendering enabled for this virtual machine."
             );
         }
     }

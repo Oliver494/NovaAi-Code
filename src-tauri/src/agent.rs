@@ -17,7 +17,7 @@ const MAX_OUTPUT_BYTES: usize = 512 * 1024;
 const MAX_COMMAND_SECS: u64 = 900;
 
 // Some Windows installers (including Nmap) do not add their program folder to
-// PATH. Make commonly used local tools available to Nova's child process only;
+// PATH. Make commonly used local tools available to Vareliox's child process only;
 // this does not alter the user's global Windows configuration.
 #[cfg(target_os = "windows")]
 fn add_known_windows_tool_paths(process: &mut Command) {
@@ -512,7 +512,7 @@ async fn run_command_inner(
         let _ = on_event.send(AgentCommandEvent::Started {
             command: "nova-system-info".into(),
         });
-        // System information is a Nova capability, not a shell process. It must
+        // System information is a Vareliox capability, not a shell process. It must
         // also work when the model supplies `/`, an absolute cwd, or no valid
         // project. Use the project only to select its disk when it is available.
         let storage_root = canonical_root(&request.root)
@@ -555,7 +555,7 @@ async fn run_command_inner(
         } else {
             validate_args(&request.args)?;
             let program = allowed_program(&request.program).ok_or_else(|| {
-                "El programa solicitado no está en la lista segura de NovaAI Code.".to_string()
+                "El programa solicitado no está en la lista segura de Vareliox Code.".to_string()
             })?;
             (program.to_string(), request.args.clone())
         }
@@ -588,7 +588,7 @@ async fn run_command_inner(
         .kill_on_drop(true);
     #[cfg(target_os = "windows")]
     add_known_windows_tool_paths(&mut process);
-    // Nova captures stdout/stderr and renders it in its own task card. Avoid
+    // Vareliox captures stdout/stderr and renders it in its own task card. Avoid
     // flashing a separate CMD/PowerShell window for terminal commands.
     #[cfg(target_os = "windows")]
     process.creation_flags(0x0800_0000); // CREATE_NO_WINDOW

@@ -128,7 +128,7 @@ pub fn http_error(status: StatusCode, body: &str, provider: &str) -> Diagnostic 
             format!("{provider} rechazó la solicitud"),
             detail,
             "La petición no coincide con los parámetros que admite el proveedor o el modelo seleccionado.",
-            "Comprueba el mensaje mostrado; Nova conserva los detalles técnicos de forma segura.",
+            "Comprueba el mensaje mostrado; Vareliox conserva los detalles técnicos de forma segura.",
             false,
         )
         .technical(redact(body));

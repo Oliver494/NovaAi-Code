@@ -46,5 +46,5 @@ export function isConversationBusy(conversation: Conversation, generatingConvers
 }
 
 export function conversationMarkdown(conversation: Conversation) {
-  return `# ${conversation.title}\n\n${conversation.messages.map((item) => `## ${item.role === "user" ? "Tú" : "Nova"}\n\n${item.content}`).join("\n\n")}`;
+  return `# ${conversation.title}\n\n${conversation.messages.map((item) => `## ${item.role === "user" ? "Tú" : "Vareliox"}\n\n${item.content}`).join("\n\n")}`;
 }

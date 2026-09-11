@@ -382,7 +382,7 @@ pub(crate) fn ensure_context_file_allowed(root: &str, relative_path: &str) -> Re
         .map_err(|error| format!("No se pudo inspeccionar el archivo: {error}"))?;
     if is_ignored(&root, &path, metadata.is_dir(), &gitignore_for(&root)) {
         return Err(
-            "El archivo está excluido por .gitignore o por las reglas seguras de NovaAI Code."
+            "El archivo está excluido por .gitignore o por las reglas seguras de Vareliox Code."
                 .into(),
         );
     }
@@ -774,7 +774,7 @@ fn ensure_ai_action_allowed(root: &Path, relative: &str, is_directory: bool) -> 
                 .any(|ignored| ignored.eq_ignore_ascii_case(&name))
             {
                 return Err(format!(
-                    "Nova no puede modificar ‘{relative}’ porque está protegido o ignorado."
+                    "Vareliox no puede modificar ‘{relative}’ porque está protegido o ignorado."
                 ));
             }
         }
@@ -782,7 +782,7 @@ fn ensure_ai_action_allowed(root: &Path, relative: &str, is_directory: bool) -> 
     let candidate = root.join(relative_path);
     if is_ignored(root, &candidate, is_directory, &gitignore_for(root)) {
         return Err(format!(
-            "Nova no puede modificar ‘{relative}’ porque está excluido por .gitignore."
+            "Vareliox no puede modificar ‘{relative}’ porque está excluido por .gitignore."
         ));
     }
     Ok(())
@@ -1248,7 +1248,9 @@ fn apply_ai_actions_inner(
                 "delete" => {
                     let target = existing_project_path(&root, &action.path)?;
                     if target == root {
-                        return Err("Nova no puede eliminar la carpeta raíz del proyecto.".into());
+                        return Err(
+                            "Vareliox no puede eliminar la carpeta raíz del proyecto.".into()
+                        );
                     }
                     if target.is_dir() {
                         fs::remove_dir_all(&target).map_err(|error| {
@@ -1518,7 +1520,7 @@ mod tests {
                 AiProjectAction {
                     action_type: "write".into(),
                     path: "src/index.html".into(),
-                    content: Some("<h1>Nova</h1>".into()),
+                    content: Some("<h1>Vareliox</h1>".into()),
                     new_path: None,
                 },
                 AiProjectAction {
@@ -1534,7 +1536,7 @@ mod tests {
         assert_eq!(applied.len(), 3);
         assert_eq!(
             fs::read_to_string(temporary.path().join("src/home.html")).unwrap(),
-            "<h1>Nova</h1>"
+            "<h1>Vareliox</h1>"
         );
         apply_ai_actions_inner(
             root.clone(),

@@ -4,6 +4,15 @@ All notable changes will be documented here. The format follows Keep a Changelog
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-09-11
+
+### Changed
+
+- Rebranded the application, installer, executable, documentation, and platform icons as Vareliox.
+- Added theme-aware Vareliox branding for light and dark interfaces.
+- Renamed the three workspaces to Vareliox Chat, Vareliox Code, and Vareliox Create.
+- Preserved existing internal storage and application identifiers so current projects, conversations, permissions, and provider settings remain compatible.
+
 ## [0.1.1] - 2026-09-08
 
 ### Added
@@ -18,7 +27,7 @@ All notable changes will be documented here. The format follows Keep a Changelog
 - First-run setup, interrupted-session recovery, visible context references, and persisted final diffs.
 - Local Git inspection, confirmed commits, recoverable change discard, and hardware-aware local model recommendations.
 - Lazy-loaded editor language support and large-project context tests.
-- Per-conversation `NovaAI` chat mode and `NovaAI Code` agent mode, with backend-enforced project isolation for normal chat.
+- Per-conversation chat and coding-agent modes, with backend-enforced project isolation for normal chat.
 - Kali/Debian Linux support with `.deb` and AppImage builds, native agent commands, GPU detection, system keyring storage, ComfyUI discovery, and platform-aware update downloads.
 
 ### Changed

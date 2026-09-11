@@ -1,18 +1,18 @@
-# NovaAI Code
+# Vareliox
 
 Español · [English](README.md)
 
-NovaAI Code es un asistente de programación open source, centrado en IA local y diseñado para Windows y Linux. Permite abrir una carpeta real, explorar y editar sus archivos y conectarse con proveedores locales o externos sin crear una cuenta de NovaAI Code.
+Vareliox es un espacio de trabajo de IA open source, centrado en IA local y diseñado para Windows y Linux. Permite conversar, crear contenido y trabajar como agente sobre carpetas reales con proveedores locales o externos, sin crear una cuenta de Vareliox.
 
 > Beta temprana: utiliza Git o una copia de seguridad para proyectos importantes. Las funciones de agente pueden modificar archivos y ejecutar un conjunto restringido de comandos del proyecto.
 
-## ¿Por qué NovaAI Code?
+## ¿Por qué Vareliox?
 
 - IA local primero: Ollama y LM Studio son proveedores de primera clase.
 - Errores comprensibles: pruebas de conexión, timeouts, cancelación y diagnósticos accionables.
 - Chat por proyecto: las conversaciones se almacenan y mantienen aisladas por carpeta.
 - Cambios revisables: las operaciones se limitan al proyecto seleccionado.
-- Sin cuenta de NovaAI: las credenciales permanecen bajo el control del usuario.
+- Sin cuenta de Vareliox: las credenciales permanecen bajo el control del usuario.
 
 ## Funciones actuales
 
@@ -36,13 +36,13 @@ NovaAI Code es un asistente de programación open source, centrado en IA local y
 
 ## Seguridad
 
-De fábrica NovaAI Code bloquea rutas absolutas, `..`, enlaces simbólicos, carpetas ignoradas, nombres inseguros, shells y comandos de sistema sin restricciones. El acceso completo a archivos, la terminal normal y el modo administrador son permisos opcionales separados. Los comandos administrativos siempre requieren aprobación y Nova nunca conoce la contraseña del usuario.
+De fábrica Vareliox bloquea rutas absolutas, `..`, enlaces simbólicos, carpetas ignoradas, nombres inseguros, shells y comandos de sistema sin restricciones. El acceso completo a archivos, la terminal normal y el modo administrador son permisos opcionales separados. Los comandos administrativos siempre requieren aprobación y Vareliox nunca conoce la contraseña del usuario.
 
 Lee [SECURITY.md](SECURITY.md) antes de activar permisos de agente y [PRIVACY.md](PRIVACY.md) para saber cuándo el código puede salir del equipo.
 
 ## Instalación
 
-Descarga desde Releases el instalador `.exe` para Windows, el paquete `.deb` para Kali/Debian/Ubuntu o la AppImage para otras distribuciones Linux x86_64. En Kali, abre la carpeta de descarga e instala el paquete con `sudo apt install ./NovaAI*.deb`. Windows puede mostrar una advertencia de SmartScreen y los paquetes Linux todavía no están firmados.
+Descarga desde Releases el instalador `.exe` para Windows, el paquete `.deb` para Kali/Debian/Ubuntu o la AppImage para otras distribuciones Linux x86_64. En Kali, abre la carpeta de descarga e instala el paquete con `sudo apt install ./Vareliox*.deb`. Windows puede mostrar una advertencia de SmartScreen y los paquetes Linux todavía no están firmados.
 
 Los usuarios finales no necesitan instalar Node.js ni Rust.
 
@@ -74,7 +74,7 @@ Consulta [ROADMAP.md](ROADMAP.md), [CONTRIBUTING.md](CONTRIBUTING.md) y [CHANGEL
 
 ## Independencia y marcas
 
-NovaAI Code es un proyecto independiente y no está afiliado, respaldado ni patrocinado por OpenAI, Anthropic, Google, NVIDIA, Ollama, LM Studio, Z.AI ni otros proveedores compatibles. Las marcas y logotipos pertenecen a sus propietarios. Consulta [TRADEMARKS.md](TRADEMARKS.md).
+Vareliox es un proyecto independiente y no está afiliado, respaldado ni patrocinado por OpenAI, Anthropic, Google, NVIDIA, Ollama, LM Studio, Z.AI ni otros proveedores compatibles. Las marcas y logotipos pertenecen a sus propietarios. Consulta [TRADEMARKS.md](TRADEMARKS.md).
 
 ## Licencia
 

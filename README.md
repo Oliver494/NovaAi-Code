@@ -1,27 +1,35 @@
-# NovaAI Code
+# Vareliox
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="src/assets/vareliox-white.png">
+    <source media="(prefers-color-scheme: light)" srcset="src/assets/vareliox-black.png">
+    <img src="src/assets/vareliox-black.png" alt="Vareliox logo" width="360">
+  </picture>
+</p>
 
 <p align="center">
   <strong>A local-first AI coding assistant for Windows and Linux that explains what is happening.</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/Oliver494/novaai-code/releases/latest"><img src="https://img.shields.io/github/v/release/Oliver494/novaai-code?display_name=tag&sort=semver" alt="Latest release"></a>
-  <a href="https://github.com/Oliver494/novaai-code/actions/workflows/ci.yml"><img src="https://github.com/Oliver494/novaai-code/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="https://github.com/Oliver494/Vareliox-AI/releases/latest"><img src="https://img.shields.io/github/v/release/Oliver494/Vareliox-AI?display_name=tag&sort=semver" alt="Latest release"></a>
+  <a href="https://github.com/Oliver494/Vareliox-AI/actions/workflows/ci.yml"><img src="https://github.com/Oliver494/Vareliox-AI/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache-2.0 license"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/Oliver494/novaai-code/releases/latest">Download for Windows or Linux</a> ·
+  <a href="https://github.com/Oliver494/Vareliox-AI/releases/latest">Download for Windows or Linux</a> ·
   <a href="README.es.md">Español</a> ·
   <a href="ROADMAP.md">Roadmap</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
-NovaAI Code lets you open a real project folder, explore and edit its files, then work with local or cloud AI models. It is designed around a simple rule: **never leave the user staring at a spinner without knowing what failed or what happens next.**
+Vareliox lets you open a real project folder, explore and edit its files, then work with local or cloud AI models. It is designed around a simple rule: **never leave the user staring at a spinner without knowing what failed or what happens next.**
 
-There is no NovaAI Code account, hosted project copy, or required subscription. Bring your own local model or provider API key.
+There is no Vareliox account, hosted project copy, or required subscription. Bring your own local model or provider API key.
 
-> **Early beta.** Make a backup or use Git before allowing an agent to edit important work. NovaAI Code always asks for approval unless you intentionally choose a broader permission mode.
+> **Early beta.** Make a backup or use Git before allowing an agent to edit important work. Vareliox always asks for approval unless you intentionally choose a broader permission mode.
 
 ## Highlights
 
@@ -30,16 +38,16 @@ There is no NovaAI Code account, hosted project copy, or required subscription. 
 - **Real project workspace** — open multiple folders, browse files, edit with syntax highlighting, and save safely.
 - **Agent mode with control** — review proposed changes, approve or reject actions, inspect diffs, and restore recent operations.
 - **Clear diagnostics** — connection tests, timeouts, cancellation, provider-specific explanations, and recommended next steps.
-- **Your data stays under your control** — API keys use the operating-system credential store; NovaAI Code does not put them in the repository or browser storage.
+- **Your data stays under your control** — API keys use the operating-system credential store; Vareliox does not put them in the repository or browser storage.
 - **Made for everyday development** — chats per project, pinned conversations, search, image/file attachments, themes, and 12 interface languages.
 
 ## Download and install
 
-Download the package for your operating system from [Releases](https://github.com/Oliver494/novaai-code/releases/latest):
+Download the package for your operating system from [Releases](https://github.com/Oliver494/Vareliox-AI/releases/latest):
 
 - **Windows:** run the x64 `.exe` installer.
-- **Kali Linux / Debian / Ubuntu:** download the x86_64 `.deb` and install it with `sudo apt install ./NovaAI*.deb` from its download folder.
-- **Other x86_64 Linux distributions:** download the `.AppImage`, run `chmod +x ./NovaAI*.AppImage`, then open it with `./NovaAI*.AppImage`.
+- **Kali Linux / Debian / Ubuntu:** download the x86_64 `.deb` and install it with `sudo apt install ./Vareliox*.deb` from its download folder.
+- **Other x86_64 Linux distributions:** download the `.AppImage`, run `chmod +x ./Vareliox*.AppImage`, then open it with `./Vareliox*.AppImage`.
 
 End users do **not** need Node.js, Rust, Git, Ollama, or LM Studio to install the app. You only need Ollama or LM Studio if you want to use local models.
 
@@ -47,14 +55,14 @@ Windows may show a SmartScreen warning while the project does not yet have a tru
 
 ## Quick start
 
-1. Install NovaAI Code from [Releases](https://github.com/Oliver494/novaai-code/releases/latest).
+1. Install Vareliox from [Releases](https://github.com/Oliver494/Vareliox-AI/releases/latest).
 2. Create or open a project folder.
-3. Choose **NovaAI** for normal chat or **NovaAI Code** to work on a project.
+3. Choose **Vareliox Chat** for normal chat or **Vareliox Code** to work on a project.
 4. Select a provider and use **Test connection** before chatting.
 5. Choose a model and ask a question.
 6. When the agent proposes file changes, inspect the diff and approve or reject it.
 
-For local models, start Ollama or LM Studio first. NovaAI Code detects common problems such as an offline server, missing model, invalid endpoint, expired quota, timeout, or invalid API key.
+For local models, start Ollama or LM Studio first. Vareliox detects common problems such as an offline server, missing model, invalid endpoint, expired quota, timeout, or invalid API key.
 
 ## Providers
 
@@ -67,9 +75,9 @@ For local models, start Ollama or LM Studio first. NovaAI Code detects common pr
 |  | Z.AI |  |
 |  | Kimi |  |
 
-Provider availability depends on your own installation, account, billing, model access, and network connection. NovaAI Code never includes provider API keys in source control.
+Provider availability depends on your own installation, account, billing, model access, and network connection. Vareliox never includes provider API keys in source control.
 
-## What NovaAI Code can do today
+## What Vareliox can do today
 
 ### Work with projects
 
@@ -95,12 +103,12 @@ Provider availability depends on your own installation, account, billing, model 
 - Authorize an additional external folder as **read-only** or **editable**; the model cannot access it until you explicitly select it.
 - Choose between a disabled terminal, allowlisted project tools, a normal user shell, or an administrator shell. Model-requested commands are shown before execution and their real output is returned to the model.
 - Use CMD or PowerShell on Windows and Bash or Zsh on Linux. Administrator mode relies on UAC or the Linux authorization agent and never reads a password.
-- Keep file access project-only by default or deliberately authorize all filesystem roots. External changes always require review and Nova does not scan the full disk automatically.
+- Keep file access project-only by default or deliberately authorize all filesystem roots. External changes always require review and Vareliox does not scan the full disk automatically.
 - Recover recent agent file operations from local snapshots.
 
 ## Security and privacy
 
-NovaAI Code is intentionally conservative about file access and commands:
+Vareliox is intentionally conservative about file access and commands:
 
 - Project-only mode rejects absolute paths, `..` traversal, unsafe platform-specific names, symlink traversal, ignored folders, shell operators, and unrestricted system commands.
 - Full filesystem access and unrestricted shells are separate, explicit opt-ins. Commands run with the selected operating-system account and administrator commands always require approval.
@@ -148,7 +156,7 @@ npm run test:all
 npm run build:linux
 ```
 
-The generated packages are placed in `src-tauri/target/release/bundle/deb/` and `src-tauri/target/release/bundle/appimage/`. On minimal Kali installations, install and start `gnome-keyring` so Nova can store API keys through the Linux Secret Service.
+The generated packages are placed in `src-tauri/target/release/bundle/deb/` and `src-tauri/target/release/bundle/appimage/`. On minimal Kali installations, install and start `gnome-keyring` so Vareliox can store API keys through the Linux Secret Service.
 
 See [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/QA.md](docs/QA.md), and [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for more detail.
 
@@ -158,12 +166,12 @@ Issues, design feedback, documentation improvements, provider integrations, and 
 
 ## Project status
 
-NovaAI Code is actively developed. Check [ROADMAP.md](ROADMAP.md) for planned work and [CHANGELOG.md](CHANGELOG.md) for released changes.
+Vareliox is actively developed. Check [ROADMAP.md](ROADMAP.md) for planned work and [CHANGELOG.md](CHANGELOG.md) for released changes.
 
 ## Independence and trademarks
 
-NovaAI Code is an independent project. It is not affiliated with, endorsed by, or sponsored by OpenAI, Anthropic, Google, NVIDIA, Ollama, LM Studio, Z.AI, Kimi, or any other supported provider. Provider names and logos belong to their respective owners; see [TRADEMARKS.md](TRADEMARKS.md).
+Vareliox is an independent project. It is not affiliated with, endorsed by, or sponsored by OpenAI, Anthropic, Google, NVIDIA, Ollama, LM Studio, Z.AI, Kimi, or any other supported provider. Provider names and logos belong to their respective owners; see [TRADEMARKS.md](TRADEMARKS.md).
 
 ## License
 
-NovaAI Code is licensed under the [Apache License 2.0](LICENSE).
+Vareliox is licensed under the [Apache License 2.0](LICENSE).

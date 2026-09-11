@@ -42,7 +42,7 @@ type Props = {
 
 function visibleAnswer(content: string) {
   // Older local models sometimes omit the underscore in the terminal wrapper.
-  // Treat both spellings as Nova-internal content so a command payload never
+  // Treat both spellings as Vareliox-internal content so a command payload never
   // leaks into the visible chat response.
   const blocks = [content.indexOf("<nova_actions>"), content.indexOf("<nova_terminal>"), content.indexOf("<novaterminal>")].filter((index) => index >= 0);
   const internalBlock = blocks.length ? Math.min(...blocks) : -1;
@@ -89,7 +89,7 @@ function proposedActions(content: string): AiProjectAction[] {
   const match = content.match(/<nova_actions>([\s\S]*?)<\/nova_actions>/);
   if (match) return validActions(match[1].trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
 
-  // Some otherwise capable models return the same action JSON without Nova's
+  // Some otherwise capable models return the same action JSON without Vareliox's
   // wrapper. Accept only JSON that validates as an action list; normal prose
   // and ordinary code blocks continue to be treated as chat content.
   const jsonBlock = content.match(/```json\s*\r?\n([\s\S]*?)```/i);
@@ -125,8 +125,8 @@ function needsWebSearch(prompt: string) {
 
 function webContext(sources: WebSearchSource[], attempted: boolean) {
   if (!attempted) return null;
-  if (!sources.length) return "BÚSQUEDA WEB: Nova intentó buscar fuentes públicas actuales para la pregunta del usuario, pero no encontró resultados utilizables. No afirmes que navegaste ni inventes información actual; explica esta limitación si es importante para responder.";
-  return `CAPACIDAD WEB ACTIVA: Nova ya consultó fuentes públicas reales para esta pregunta y tienes los resultados a continuación. No digas que no tienes acceso a Internet, que no puedes buscar ni que el usuario deba buscar por su cuenta. Responde con esta información; si no basta para dar un dato exacto, explica con precisión qué falta. No afirmes que consultaste páginas que no aparecen aquí. Si das un dato obtenido de una fuente, cita su nombre y URL.\n\nFUENTES WEB ACTUALES:\n${sources.map((source, index) => `[${index + 1}] ${source.title}\nURL: ${source.url}\nResumen: ${source.snippet || "Sin resumen disponible."}`).join("\n\n")}`;
+  if (!sources.length) return "BÚSQUEDA WEB: Vareliox intentó buscar fuentes públicas actuales para la pregunta del usuario, pero no encontró resultados utilizables. No afirmes que navegaste ni inventes información actual; explica esta limitación si es importante para responder.";
+  return `CAPACIDAD WEB ACTIVA: Vareliox ya consultó fuentes públicas reales para esta pregunta y tienes los resultados a continuación. No digas que no tienes acceso a Internet, que no puedes buscar ni que el usuario deba buscar por su cuenta. Responde con esta información; si no basta para dar un dato exacto, explica con precisión qué falta. No afirmes que consultaste páginas que no aparecen aquí. Si das un dato obtenido de una fuente, cita su nombre y URL.\n\nFUENTES WEB ACTUALES:\n${sources.map((source, index) => `[${index + 1}] ${source.title}\nURL: ${source.url}\nResumen: ${source.snippet || "Sin resumen disponible."}`).join("\n\n")}`;
 }
 
 function requestHistory(messages: ChatMessage[]) {
@@ -260,7 +260,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
     const selected = conversations.find((item) => item.id === activeId);
     if (selected?.lastError) {
       lastPrompt.current = [...selected.messages].reverse().find((item) => item.role === "user")?.content ?? "";
-      setDiagnostic({ code: "INTERRUPTED_SESSION", title: t("Respuesta interrumpida", "Interrupted response"), explanation: t("Nova se cerró o perdió la conexión antes de terminar esta respuesta.", "Nova closed or lost the connection before completing this response."), cause: t("La conversación y la pregunta se conservaron localmente.", "The conversation and question were preserved locally."), action: t("Pulsa Reintentar para continuar.", "Press Retry to continue."), technicalDetails: null, retryable: true });
+      setDiagnostic({ code: "INTERRUPTED_SESSION", title: t("Respuesta interrumpida", "Interrupted response"), explanation: t("Vareliox se cerró o perdió la conexión antes de terminar esta respuesta.", "Vareliox closed or lost the connection before completing this response."), cause: t("La conversación y la pregunta se conservaron localmente.", "The conversation and question were preserved locally."), action: t("Pulsa Reintentar para continuar.", "Press Retry to continue."), technicalDetails: null, retryable: true });
     }
   }, [activeId]);
 
@@ -314,7 +314,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
   async function compactConversation() {
     if (!conversation || !active || !ready || generating) return;
     if (conversation.messages.length < 2) { addLocalMessage(t("No hay suficiente conversación para compactar todavía.", "There is not enough conversation to compact yet.")); return; }
-    const transcript = conversation.messages.slice(-40).map((item) => `${item.role === "user" ? "Usuario" : "Nova"}:\n${visibleAnswer(item.content)}`).join("\n\n").slice(-120_000);
+    const transcript = conversation.messages.slice(-40).map((item) => `${item.role === "user" ? "Usuario" : "Vareliox"}:\n${visibleAnswer(item.content)}`).join("\n\n").slice(-120_000);
     let summary = "";
     setGeneratingConversationId(conversation.id); setGenerating(true); setDiagnostic(null); setStatus(t("Compactando el contexto…", "Compacting context…")); setWaitMs(0);
     const timer = window.setInterval(() => setWaitMs((value) => value + 100), 100);
@@ -334,7 +334,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
       });
       if (summary.trim()) {
         updateConversationById(conversation.id, (item) => ({ ...item, compactedContext: summary.trim(), compactedAt: Date.now(), updatedAt: Date.now() }));
-        addLocalMessage(t("Contexto compactado. Nova conservará los puntos importantes y enviará menos historial en los próximos mensajes.", "Context compacted. Nova will keep the important points and send less history in future messages."));
+        addLocalMessage(t("Contexto compactado. Vareliox conservará los puntos importantes y enviará menos historial en los próximos mensajes.", "Context compacted. Vareliox will keep the important points and send less history in future messages."));
       } else if (!diagnostic) {
         setDiagnostic({ code: "COMPACTION_FAILED", title: "No se pudo compactar el contexto", explanation: "El modelo no devolvió un resumen.", cause: "La respuesta llegó vacía o se interrumpió.", action: "Vuelve a intentarlo más tarde.", technicalDetails: null, retryable: true });
       }
@@ -357,7 +357,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
     }
     if (["/test", "/build", "/check"].includes(command)) {
       setInput("");
-      if (!codeMode) addLocalMessage(t("Cambia a NovaAI Code para ejecutar comandos del proyecto.", "Switch to NovaAI Code to run project commands."));
+      if (!codeMode) addLocalMessage(t("Cambia a Vareliox Code para ejecutar comandos del proyecto.", "Switch to Vareliox Code to run project commands."));
       else void requestDetectedCommand(command.slice(1) as DetectedCommand["kind"]);
       return true;
     }
@@ -397,7 +397,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
 
   function terminalCommandPreview(action: AiTerminalAction): DetectedCommand {
     const shellCommand = action.command?.trim();
-    return { id: "nova-terminal", label: action.purpose || t("Comando solicitado por Nova", "Command requested by Nova"), program: shellCommand ? (permissions.terminalShell === "automatic" ? t("Terminal del sistema", "System terminal") : permissions.terminalShell) : action.program || "", args: shellCommand ? [shellCommand] : action.args || [], kind: "check" };
+    return { id: "nova-terminal", label: action.purpose || t("Comando solicitado por Vareliox", "Command requested by Vareliox"), program: shellCommand ? (permissions.terminalShell === "automatic" ? t("Terminal del sistema", "System terminal") : permissions.terminalShell) : action.program || "", args: shellCommand ? [shellCommand] : action.args || [], kind: "check" };
   }
 
   async function executeProposedTerminal(pending: PendingTerminal) {
@@ -671,7 +671,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
       actionStreamComplete = true;
       setStatus(conversation.approvalMode === "ask" ? t("Preparando cambios para revisar…", "Preparing changes for review…") : t("Creando archivos…", "Creating files…"));
       streamedActionPromise = handleProposedActions(actions, conversation.approvalMode, { conversationId, messageId: assistantMessage.id });
-      // Keep receiving the stream. Nova must never cancel a response on its own
+      // Keep receiving the stream. Vareliox must never cancel a response on its own
       // merely because it has received a valid operation block.
     };
 
@@ -716,7 +716,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
         messages: requestMessages, attachments: requestAttachments,
         uploads: requestUploads,
         externalFolders: requestCodeMode ? authorizedFolders : [],
-        // Capability stays enabled throughout NovaAI Code. actionExpected is
+        // Capability stays enabled throughout Vareliox Code. actionExpected is
         // the separate safety gate for reviewing/applying this message's edits.
         workspaceAccess: useWorkspace, canEdit: requestCodeMode && permissions.allowFileChanges, codeMode: requestCodeMode,
         terminalAccess: requestCodeMode ? permissions.terminalAccess : "disabled",
@@ -740,7 +740,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
       }
       let actions = streamedActions.length ? streamedActions : proposedActions(assistantBuffer.current);
       if (actionExpected && !actions.length && !terminalAction && !interrupted) {
-        // Several providers return a valid code fence but omit Nova's action
+        // Several providers return a valid code fence but omit Vareliox's action
         // wrapper. Treat that as an editable file instead of discarding it.
         actions = codeBlockAction(assistantBuffer.current, prompt);
       }
@@ -759,7 +759,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
         else await handleProposedActions(actions, conversation.approvalMode, { conversationId, messageId: assistantMessage.id });
       }
       else if (actions.length) {
-        setDiagnostic({ code: "PERMISSION_DENIED", title: "Cambio no solicitado bloqueado", explanation: "El modelo propuso modificar archivos aunque tu pregunta no lo pedía.", cause: "La respuesta incluía una operación de archivos fuera de una solicitud explícita.", action: "Nova no aplicó ningún cambio. Pide una edición de forma explícita si la necesitas.", technicalDetails: null, retryable: false });
+        setDiagnostic({ code: "PERMISSION_DENIED", title: "Cambio no solicitado bloqueado", explanation: "El modelo propuso modificar archivos aunque tu pregunta no lo pedía.", cause: "La respuesta incluía una operación de archivos fuera de una solicitud explícita.", action: "Vareliox no aplicó ningún cambio. Pide una edición de forma explícita si la necesitas.", technicalDetails: null, retryable: false });
         setStatus("Cambio no solicitado bloqueado");
       }
       else if (terminalAction && !interrupted) {
@@ -774,7 +774,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
         }
       }
       else if (actionExpected && !interrupted) {
-        setDiagnostic({ code: "ACTION_FORMAT_INVALID", title: "El modelo no generó una operación válida", explanation: "Nova intentó corregir la respuesta automáticamente, pero el modelo volvió a omitir el bloque de acciones.", cause: "El modelo seleccionado puede ser demasiado pequeño o no seguir instrucciones estructuradas.", action: "Reintenta o selecciona un modelo de programación con mejor seguimiento de instrucciones.", technicalDetails: assistantBuffer.current || "Respuesta vacía", retryable: true });
+        setDiagnostic({ code: "ACTION_FORMAT_INVALID", title: "El modelo no generó una operación válida", explanation: "Vareliox intentó corregir la respuesta automáticamente, pero el modelo volvió a omitir el bloque de acciones.", cause: "El modelo seleccionado puede ser demasiado pequeño o no seguir instrucciones estructuradas.", action: "Reintenta o selecciona un modelo de programación con mejor seguimiento de instrucciones.", technicalDetails: assistantBuffer.current || "Respuesta vacía", retryable: true });
         setStatus("No se aplicó ningún cambio");
       }
     } catch (cause) { setDiagnostic(asDiagnostic(cause)); setStatus("La respuesta se interrumpió"); updateConversationById(conversationId, (item) => ({ ...item, lastError: true, updatedAt: Date.now() })); }
@@ -789,7 +789,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
       return;
     }
     if (!nvidia?.apiKeyConfigured) {
-      setDiagnostic({ code: "INVALID_API_KEY", title: "Configura NVIDIA API", explanation: "Crear imágenes en NovaAI utiliza tu clave de NVIDIA API.", cause: "NVIDIA API no tiene una clave guardada.", action: "Abre Proveedores y configura NVIDIA API.", technicalDetails: null, retryable: false });
+      setDiagnostic({ code: "INVALID_API_KEY", title: "Configura NVIDIA API", explanation: "Crear imágenes en Vareliox Chat utiliza tu clave de NVIDIA API.", cause: "NVIDIA API no tiene una clave guardada.", action: "Abre Proveedores y configura NVIDIA API.", technicalDetails: null, retryable: false });
       return;
     }
     if (generating) return;
@@ -871,7 +871,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
     }
     const mimeType = file.type || "image/png";
     if (!/^image\/(png|jpeg|webp|gif)$/i.test(mimeType)) {
-      setDiagnostic({ code: "INVALID_RESPONSE", title: "Formato de imagen no compatible", explanation: "NovaAI Code acepta PNG, JPG, WEBP y GIF en el chat.", cause: `El portapapeles proporcionó ${mimeType}.`, action: "Pega una imagen compatible o súbela como archivo.", technicalDetails: null, retryable: false });
+      setDiagnostic({ code: "INVALID_RESPONSE", title: "Formato de imagen no compatible", explanation: "Vareliox Code acepta PNG, JPG, WEBP y GIF en el chat.", cause: `El portapapeles proporcionó ${mimeType}.`, action: "Pega una imagen compatible o súbela como archivo.", technicalDetails: null, retryable: false });
       return;
     }
     try {
@@ -928,36 +928,36 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
           {conversation && <div className={`assistant-mode-picker${modePickerOpen ? " is-open" : ""}`} ref={modePickerRef}>
             <button className="assistant-mode-trigger" type="button" onClick={() => setModePickerOpen((open) => !open)} disabled={modeSwitchDisabled} aria-haspopup="menu" aria-expanded={modePickerOpen} aria-label={t("Elegir modo del asistente", "Choose assistant mode")}>
               <span className={`assistant-mode-icon assistant-mode-icon--${codeMode ? "code" : "chat"}`}>{codeMode ? <Code2 size={15} /> : <Bot size={15} />}</span>
-              <span><strong>{codeMode ? "NovaAI Code" : "NovaAI"}</strong><small>{codeMode ? t("Agente de código", "Coding agent") : t("Chat con IA", "AI chat")}</small></span>
+              <span><strong>{codeMode ? "Vareliox Code" : "Vareliox Chat"}</strong><small>{codeMode ? t("Agente de código", "Coding agent") : t("Chat con IA", "AI chat")}</small></span>
               <ChevronDown size={14} />
             </button>
             {modePickerOpen && <div className="assistant-mode-menu" role="menu" aria-label={t("Elegir modo", "Choose mode")}>
               <header><strong>{t("Elige cómo quieres trabajar", "Choose how you want to work")}</strong><span>{t("Puedes usar un modo diferente en cada chat.", "You can use a different mode in each chat.")}</span></header>
               <button type="button" role="menuitemradio" aria-checked={!codeMode} className={!codeMode ? "is-selected" : ""} onClick={() => changeAssistantMode("chat")}>
                 <span className="assistant-mode-card-icon assistant-mode-card-icon--chat"><Bot size={19} /></span>
-                <span><strong>NovaAI</strong><small>{t("Pregunta, aprende y genera contenido sin modificar archivos.", "Ask, learn, and generate content without changing files.")}</small></span>
+                <span><strong>Vareliox Chat</strong><small>{t("Pregunta, aprende y genera contenido sin modificar archivos.", "Ask, learn, and generate content without changing files.")}</small></span>
                 {!codeMode && <Check size={16} />}
               </button>
               <button type="button" role="menuitemradio" aria-checked={codeMode} className={codeMode ? "is-selected" : ""} onClick={() => changeAssistantMode("code")} disabled={!project}>
                 <span className="assistant-mode-card-icon assistant-mode-card-icon--code"><Code2 size={19} /></span>
-                <span><strong>NovaAI Code</strong><small>{project ? t("Lee, crea y edita archivos dentro del proyecto abierto.", "Read, create, and edit files inside the open project.") : t("Abre un proyecto para activar el agente de código.", "Open a project to enable the coding agent.")}</small></span>
+                <span><strong>Vareliox Code</strong><small>{project ? t("Lee, crea y edita archivos dentro del proyecto abierto.", "Read, create, and edit files inside the open project.") : t("Abre un proyecto para activar el agente de código.", "Open a project to enable the coding agent.")}</small></span>
                 {codeMode && <Check size={16} />}
               </button>
-              <footer><ShieldCheck size={13} /><span>{codeMode ? t("Los cambios respetan tus permisos y muestran un diff.", "Changes follow your permissions and show a diff.") : t("NovaAI no recibe acceso automático al proyecto.", "NovaAI does not receive automatic project access.")}</span></footer>
+              <footer><ShieldCheck size={13} /><span>{codeMode ? t("Los cambios respetan tus permisos y muestran un diff.", "Changes follow your permissions and show a diff.") : t("Vareliox Chat no recibe acceso automático al proyecto.", "Vareliox Chat does not receive automatic project access.")}</span></footer>
             </div>}
           </div>}
           <div className="chat-provider"><span className={`provider-dot ${ready ? "is-ready" : ""}`} /><div><strong>{active ? providerDisplayName(active) : t("Sin proveedor", "No provider")}</strong><span>{active?.model || t("Configura un modelo", "Configure a model")}</span></div></div>
         </div>
         <div className="chat-header__actions">
           {codeMode && project && <button className="icon-button terminal-launch-button" type="button" onClick={() => setTerminalOpen((open) => !open)} aria-pressed={terminalOpen} aria-label={t("Terminal", "Terminal")} title={t("Terminal", "Terminal")}><Terminal size={18} /></button>}
-          {codeMode && project && conversation && <label className={`approval-control approval-control--${conversation.approvalMode}`} title={t("Controla cuándo Nova necesita tu aprobación", "Controls when Nova needs your approval")}><ShieldCheck size={14} /><select value={conversation.approvalMode} onChange={(event) => updateConversation((item) => ({ ...item, approvalMode: event.target.value as Conversation["approvalMode"], updatedAt: Date.now() }))} aria-label={t("Permisos de la conversación", "Conversation permissions")}><option value="ask">{t("Solicitar aprobación", "Ask for approval")}</option><option value="auto">{t("Aprobar por mí", "Approve for me")}</option><option value="full">{t("Acceso completo", "Full access")}</option></select></label>}
+          {codeMode && project && conversation && <label className={`approval-control approval-control--${conversation.approvalMode}`} title={t("Controla cuándo Vareliox necesita tu aprobación", "Controls when Vareliox needs your approval")}><ShieldCheck size={14} /><select value={conversation.approvalMode} onChange={(event) => updateConversation((item) => ({ ...item, approvalMode: event.target.value as Conversation["approvalMode"], updatedAt: Date.now() }))} aria-label={t("Permisos de la conversación", "Conversation permissions")}><option value="ask">{t("Solicitar aprobación", "Ask for approval")}</option><option value="auto">{t("Aprobar por mí", "Approve for me")}</option><option value="full">{t("Acceso completo", "Full access")}</option></select></label>}
           <div className="chat-connection">{ready ? <><Check size={13} />{t("Configurado", "Configured")}</> : <><AlertCircle size={13} />{t("Incompleto", "Incomplete")}</>}<button className="icon-button" onClick={onConfigure} title={t("Configurar proveedores", "Configure providers")}><Settings2 size={16} /></button></div>
         </div>
       </header>
       <div className="chat-messages" ref={messagesRef} onScroll={handleMessagesScroll}>
-        {!conversation?.messages.length && <div className={`chat-empty chat-empty--${mode}`}><div>{codeMode ? <Code2 size={20} /> : <Bot size={20} />}</div><h1>{codeMode ? t("¿Qué quieres construir?", "What do you want to build?") : t("¿En qué puedo ayudarte hoy?", "How can I help today?")}</h1><p>{codeMode ? (project ? t(`NovaAI Code puede trabajar en ${project.name}.`, `NovaAI Code can work in ${project.name}.`) : t("Abre una carpeta para trabajar con su código.", "Open a folder to work with its code.")) : t("Pregunta, analiza una imagen o desarrolla una idea.", "Ask a question, analyze an image, or develop an idea.")}</p>{!codeMode && <div className="chat-starters"><button onClick={() => setInput(t("Ayúdame a entender un tema", "Help me understand a topic"))}>{t("Aprender algo", "Learn something")}</button><button onClick={() => setInput(t("Analiza esta idea y ayúdame a mejorarla", "Analyze this idea and help me improve it"))}>{t("Desarrollar una idea", "Develop an idea")}</button><button onClick={() => setAttachmentOpen(true)}>{t("Analizar un archivo", "Analyze a file")}</button></div>}{!ready && <button className="primary-button" onClick={onConfigure}><Settings2 size={15} />{t("Configurar proveedor", "Configure provider")}</button>}</div>}
+        {!conversation?.messages.length && <div className={`chat-empty chat-empty--${mode}`}><div>{codeMode ? <Code2 size={20} /> : <Bot size={20} />}</div><h1>{codeMode ? t("¿Qué quieres construir?", "What do you want to build?") : t("¿En qué puedo ayudarte hoy?", "How can I help today?")}</h1><p>{codeMode ? (project ? t(`Vareliox Code puede trabajar en ${project.name}.`, `Vareliox Code can work in ${project.name}.`) : t("Abre una carpeta para trabajar con su código.", "Open a folder to work with its code.")) : t("Pregunta, analiza una imagen o desarrolla una idea.", "Ask a question, analyze an image, or develop an idea.")}</p>{!codeMode && <div className="chat-starters"><button onClick={() => setInput(t("Ayúdame a entender un tema", "Help me understand a topic"))}>{t("Aprender algo", "Learn something")}</button><button onClick={() => setInput(t("Analiza esta idea y ayúdame a mejorarla", "Analyze this idea and help me improve it"))}>{t("Desarrollar una idea", "Develop an idea")}</button><button onClick={() => setAttachmentOpen(true)}>{t("Analizar un archivo", "Analyze a file")}</button></div>}{!ready && <button className="primary-button" onClick={onConfigure}><Settings2 size={15} />{t("Configurar proveedor", "Configure provider")}</button>}</div>}
         {conversation?.messages.map((item, index) => <article key={item.id} className={`chat-message chat-message--${item.role}`}>
-          <span>{item.role === "user" ? t("Tú", "You") : codeMode ? "NovaAI Code" : "NovaAI"}</span>
+          <span>{item.role === "user" ? t("Tú", "You") : codeMode ? "Vareliox Code" : "Vareliox Chat"}</span>
           <div className="message-body">
             <div>{item.role === "assistant" ? <AssistantMessageContent content={visibleAnswer(item.content)} media={item.generatedMedia} /> : item.content}{!(item.role === "assistant" ? visibleAnswer(item.content) : item.content) && generatingHere && index === conversation.messages.length - 1 ? <span className="waiting-text" role="status" aria-live="polite"><LoaderCircle className="spin" size={14} />{status} {(waitMs / 1000).toFixed(1)} s</span> : null}</div>
             {!!item.uploads?.length && <div className="message-attachments">{item.uploads.map((file) => <span key={file.id}>{file.kind === "image" ? <Image size={12} /> : <FileCode2 size={12} />}{file.name}</span>)}</div>}
@@ -977,7 +977,7 @@ export function ChatPane({ mode, activeWorkspace, project, projects, openFiles, 
         {(projectAttachments.length > 0 || uploads.length > 0) && <div className="attached-files">{projectAttachments.map((path) => <span key={path}><FileCode2 size={12} />{path}<button onClick={() => toggleProjectAttachment(path)}><X size={12} /></button></span>)}{uploads.map((file) => <span key={file.id} title={file.name}>{file.kind === "image" ? <img className="attached-files__image" src={`data:${file.mimeType};base64,${file.data}`} alt={t("Imagen adjunta", "Attached image")} /> : <FileCode2 size={12} />}{file.name}<button onClick={() => setUploads((items) => items.filter((item) => item.id !== file.id))} aria-label={`${t("Quitar", "Remove")} ${file.name}`}><X size={12} /></button></span>)}</div>}
         {attachmentOpen && <div className={`attachment-menu${codeMode && openFiles.length ? "" : " attachment-menu--compact"}`}><button className="attachment-menu__upload" onClick={() => void uploadFiles()}><Upload size={14} />{t("Subir archivo o imagen", "Upload file or image")}</button>{codeMode && project && <div className="external-folder-actions"><button type="button" onClick={() => void grantExternalFolder("read")}><FolderPlus size={14} />{t("Añadir carpeta de lectura", "Add read-only folder")}</button><button type="button" onClick={() => void grantExternalFolder("write")}><FolderPlus size={14} />{t("Añadir carpeta con edición", "Add editable folder")}</button></div>}{codeMode && openFiles.length > 0 && <div className="attachment-menu__files">{openFiles.map((file) => <label key={file.relativePath}><input type="checkbox" checked={projectAttachments.includes(file.relativePath)} onChange={() => toggleProjectAttachment(file.relativePath)} /><FileCode2 size={14} /><span>{file.relativePath}</span><small>{Math.ceil(file.content.length / 4).toLocaleString()} tokens</small></label>)}</div>}</div>}
         {!!commandSuggestions.length && <div className="slash-command-menu" role="listbox" aria-label={t("Comandos del chat", "Chat commands")}>{commandSuggestions.map((item) => <button type="button" key={item.command} onClick={() => { setInput(""); runCommand(item.command); }}><code>{item.command}</code><span><strong>{t(item.label[0], item.label[1])}</strong><small>{t(item.description[0], item.description[1])}</small></span></button>)}</div>}
-        <div className="chat-composer"><textarea value={input} onChange={(event) => setInput(event.target.value)} onPaste={handlePaste} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); if (!generatingElsewhere) void send(); } }} placeholder={generatingElsewhere ? t("Puedes seguir escribiendo; hay una respuesta en curso en otro chat…", "You can keep typing; another chat is responding…") : ready ? (codeMode ? t("Pide un cambio o pregunta sobre el proyecto…", "Ask for a change or about the project…") : t("Pregunta lo que quieras…", "Ask anything…")) : t("Selecciona un modelo para comenzar", "Select a model to begin")} disabled={!ready || generatingHere} rows={2} /><footer><div><button className="composer-button composer-button--attach" disabled={generatingHere} onClick={() => setAttachmentOpen((value) => !value)} aria-expanded={attachmentOpen} title={t("Adjuntar archivo o imagen", "Attach file or image")} aria-label={t("Adjuntar archivo o imagen", "Attach file or image")}><Plus size={16} /></button><span>{generatingElsewhere ? t("Respuesta en curso en otro chat", "Response in progress in another chat") : `${estimatedTokens.toLocaleString()} ${t("tokens aprox.", "approx. tokens")}`}</span></div><div className="composer-actions">{!codeMode && <button className="composer-button composer-button--image" type="button" onClick={() => void createImageInChat()} disabled={generatingElsewhere || generatingHere || !input.trim()} title="Crear imagen con NVIDIA"><Sparkles size={15} /></button>}{codeMode && project && conversation && <label className={`approval-control approval-control--${conversation.approvalMode}`} title={t("Controla cuándo Nova necesita tu aprobación", "Controls when Nova needs your approval")}><ShieldCheck size={14} /><select value={conversation.approvalMode} onChange={(event) => updateConversation((item) => ({ ...item, approvalMode: event.target.value as Conversation["approvalMode"], updatedAt: Date.now() }))} aria-label={t("Permisos de la conversación", "Conversation permissions")}><option value="ask">{t("Solicitar aprobación", "Ask for approval")}</option><option value="auto">{t("Aprobar por mí", "Approve for me")}</option><option value="full">{t("Acceso completo", "Full access")}</option></select></label>}{settings && <ChatModelPicker projectPath={project?.path ?? null} settings={settings} disabled={generatingHere} onChange={onSettingsChange} onConfigure={onConfigure} />}{generatingHere ? <button className="stop-button" onClick={() => void stop()}><Square size={13} fill="currentColor" />{t("Detener", "Stop")}</button> : <button className="send-button" title={generatingElsewhere ? t("Espera a que termine la respuesta del otro chat", "Wait for the other chat response to finish") : undefined} disabled={generatingElsewhere || !ready || (!input.trim() && uploads.length === 0 && projectAttachments.length === 0)} onClick={() => void send()} aria-label={t("Enviar", "Send")}><Send size={16} /></button>}</div></footer></div>
+        <div className="chat-composer"><textarea value={input} onChange={(event) => setInput(event.target.value)} onPaste={handlePaste} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); if (!generatingElsewhere) void send(); } }} placeholder={generatingElsewhere ? t("Puedes seguir escribiendo; hay una respuesta en curso en otro chat…", "You can keep typing; another chat is responding…") : ready ? (codeMode ? t("Pide un cambio o pregunta sobre el proyecto…", "Ask for a change or about the project…") : t("Pregunta lo que quieras…", "Ask anything…")) : t("Selecciona un modelo para comenzar", "Select a model to begin")} disabled={!ready || generatingHere} rows={2} /><footer><div><button className="composer-button composer-button--attach" disabled={generatingHere} onClick={() => setAttachmentOpen((value) => !value)} aria-expanded={attachmentOpen} title={t("Adjuntar archivo o imagen", "Attach file or image")} aria-label={t("Adjuntar archivo o imagen", "Attach file or image")}><Plus size={16} /></button><span>{generatingElsewhere ? t("Respuesta en curso en otro chat", "Response in progress in another chat") : `${estimatedTokens.toLocaleString()} ${t("tokens aprox.", "approx. tokens")}`}</span></div><div className="composer-actions">{!codeMode && <button className="composer-button composer-button--image" type="button" onClick={() => void createImageInChat()} disabled={generatingElsewhere || generatingHere || !input.trim()} title="Crear imagen con NVIDIA"><Sparkles size={15} /></button>}{codeMode && project && conversation && <label className={`approval-control approval-control--${conversation.approvalMode}`} title={t("Controla cuándo Vareliox necesita tu aprobación", "Controls when Vareliox needs your approval")}><ShieldCheck size={14} /><select value={conversation.approvalMode} onChange={(event) => updateConversation((item) => ({ ...item, approvalMode: event.target.value as Conversation["approvalMode"], updatedAt: Date.now() }))} aria-label={t("Permisos de la conversación", "Conversation permissions")}><option value="ask">{t("Solicitar aprobación", "Ask for approval")}</option><option value="auto">{t("Aprobar por mí", "Approve for me")}</option><option value="full">{t("Acceso completo", "Full access")}</option></select></label>}{settings && <ChatModelPicker projectPath={project?.path ?? null} settings={settings} disabled={generatingHere} onChange={onSettingsChange} onConfigure={onConfigure} />}{generatingHere ? <button className="stop-button" onClick={() => void stop()}><Square size={13} fill="currentColor" />{t("Detener", "Stop")}</button> : <button className="send-button" title={generatingElsewhere ? t("Espera a que termine la respuesta del otro chat", "Wait for the other chat response to finish") : undefined} disabled={generatingElsewhere || !ready || (!input.trim() && uploads.length === 0 && projectAttachments.length === 0)} onClick={() => void send()} aria-label={t("Enviar", "Send")}><Send size={16} /></button>}</div></footer></div>
       </div>
       {project && <div hidden={!terminalOpen}><NovaTerminalPanel key={`${project.path}:${conversation?.id}`} root={project.path} projectName={project.name} onClose={() => setTerminalOpen(false)} /></div>}
     </section>

@@ -6,7 +6,7 @@
 
 ---
 
-**Project:** NovaAI Code
+**Project:** Vareliox
 **Generated:** 2026-08-11 23:14:54
 **Category:** White Noise & Ambient Sound
 **Design Dials:** Variance 4/10 (Balanced / Modern) | Motion 4/10 (Standard) | Density 7/10 (Standard)

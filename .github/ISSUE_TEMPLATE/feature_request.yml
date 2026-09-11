@@ -25,4 +25,4 @@ body:
     attributes:
       label: Scope
       options:
-        - label: This does not require NovaAI Code to host AI models or user accounts.
+        - label: This does not require Vareliox to host AI models or user accounts.

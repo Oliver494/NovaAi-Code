@@ -26,10 +26,10 @@ test("guarda varios proyectos en orden alfabético estable", () => {
 
 test("evita duplicados aunque cambien mayúsculas o la barra final", () => {
   resetStorage();
-  let projects = rememberProject([], { name: "Anterior", path: "C:\\Codigo\\Nova\\" });
-  projects = rememberProject(projects, { name: "Nova", path: "c:\\codigo\\nova" });
+  let projects = rememberProject([], { name: "Anterior", path: "C:\\Codigo\\Vareliox\\" });
+  projects = rememberProject(projects, { name: "Vareliox", path: "c:\\codigo\\vareliox" });
   assert.equal(projects.length, 1);
-  assert.equal(projects[0].name, "Nova");
+  assert.equal(projects[0].name, "Vareliox");
 });
 
 test("quitar un proyecto solo modifica el registro local", () => {

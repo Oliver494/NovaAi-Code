@@ -13,7 +13,7 @@ localStorage.setItem("novaai-code:permissions:v1", JSON.stringify({ terminalAcce
 function Preview() {
   const { setTheme } = usePreferences();
   return <main style={{ width: "100%", maxWidth: 1100, margin: "20px auto", padding: 16 }}>
-    <h2>Nova · Terminal</h2><p>Visual fixture — no commands execute.</p>
+    <h2>Vareliox · Terminal</h2><p>Visual fixture — no commands execute.</p>
     <div style={{ display: "flex", gap: 10, marginBottom: 20 }}><button onClick={() => setTheme("light")}>Claro</button><button onClick={() => setTheme("dark")}>Oscuro</button></div>
     <NovaTerminalPanel root="C:\\Projects\\Project with spaces" projectName="Project with spaces" onClose={() => undefined} />
   </main>;

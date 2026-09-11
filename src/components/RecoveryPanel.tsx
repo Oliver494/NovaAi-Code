@@ -38,7 +38,7 @@ export function RecoveryPanel({ projectPath, onRestored }: Props) {
   return <section className="recovery-panel">
     <div className="settings-toolbar"><span>{t("Copias creadas antes de cambios del agente", "Copies created before agent changes")}</span><button className="secondary-button" onClick={() => void load()} disabled={loading}><RefreshCw size={15} />{t("Actualizar", "Refresh")}</button></div>
     {error && <div className="settings-inline-error">{error}</div>}
-    {!loading && !items.length && <div className="settings-empty"><History size={22} /><strong>{t("Todavía no hay recuperaciones", "No recoveries yet")}</strong><span>{t("Nova creará una antes de modificar archivos.", "Nova will create one before changing files.")}</span></div>}
+    {!loading && !items.length && <div className="settings-empty"><History size={22} /><strong>{t("Todavía no hay recuperaciones", "No recoveries yet")}</strong><span>{t("Vareliox creará una antes de modificar archivos.", "Vareliox will create one before changing files.")}</span></div>}
     <div className="recovery-list">{items.map((item) => <article key={item.id}><div><strong>{new Date(item.createdAt).toLocaleString()}</strong><span>{item.actionCount} {t("operaciones", "operations")}</span><small>{item.summary.slice(0, 3).join(" · ")}</small></div><button className="secondary-button" onClick={() => void restore(item)} disabled={loading}><RotateCcw size={15} />{t("Restaurar", "Restore")}</button></article>)}</div>
   </section>;
 }

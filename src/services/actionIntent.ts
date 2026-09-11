@@ -29,7 +29,7 @@ export function requestsProjectAction(prompt: string, history: Pick<ChatMessage,
   const current = normalize(prompt).replace(/[¿?]/g, "").trim();
 
   // Explanatory questions may mention words such as "crear" without asking
-  // Nova to modify the workspace.
+  // Vareliox to modify the workspace.
   if (INFORMATIONAL_PREFIX.test(current)) return false;
   if (CONTINUATION.test(current)) {
     return previousActionRequest(history);

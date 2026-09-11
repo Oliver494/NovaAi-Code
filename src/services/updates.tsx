@@ -28,7 +28,7 @@ function loadStored(): StoredUpdates {
 function officialReleaseUrl(value: string) {
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && url.hostname === "github.com" && url.pathname.toLowerCase().startsWith("/oliver494/novaai-code/releases/") && !url.username && !url.password;
+    return url.protocol === "https:" && url.hostname === "github.com" && url.pathname.toLowerCase().startsWith("/oliver494/vareliox-ai/releases/") && !url.username && !url.password;
   } catch { return false; }
 }
 

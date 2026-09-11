@@ -15,7 +15,8 @@ import {
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import "./workspace-polish.css";
-import novaLogo from "./assets/nova.png";
+import varelioxBlackLogo from "./assets/vareliox-black.png";
+import varelioxWhiteLogo from "./assets/vareliox-white.png";
 import { ActionDialog, type DialogRequest } from "./components/ActionDialog";
 import { NovaChatWorkspace } from "./components/NovaChatWorkspace";
 import { NovaCodeWorkspace } from "./components/NovaCodeWorkspace";
@@ -39,7 +40,10 @@ const LAST_WORKSPACE_KEY = "novaai-code:last-workspace";
 const EditorPane = lazy(() => import("./components/EditorPane").then((module) => ({ default: module.EditorPane })));
 
 function BrandMark() {
-  return <div className="brand-mark" aria-hidden="true"><img src={novaLogo} alt="" draggable={false} /></div>;
+  return <div className="brand-mark" aria-hidden="true">
+    <img className="brand-mark__light" src={varelioxBlackLogo} alt="" draggable={false} />
+    <img className="brand-mark__dark" src={varelioxWhiteLogo} alt="" draggable={false} />
+  </div>;
 }
 
 function joinRelative(parent: string, name: string) {
@@ -276,7 +280,7 @@ function App() {
       } catch { /* A newly deleted or unavailable file will be reflected by the tree refresh. */ }
     }
     if (replacements.size) setOpenFiles((items) => items.map((item) => replacements.get(item.relativePath) ?? item));
-    notify("success", `${paths.length} archivo${paths.length === 1 ? "" : "s"} actualizado${paths.length === 1 ? "" : "s"} por Nova`);
+    notify("success", `${paths.length} archivo${paths.length === 1 ? "" : "s"} actualizado${paths.length === 1 ? "" : "s"} por Vareliox`);
     // The write has already completed. Refreshing a large tree can take much
     // longer than creating the file, so keep it out of the critical path.
     void refreshTree(true);
@@ -354,8 +358,8 @@ function App() {
       <aside className="activity-rail" aria-label={t("Navegación principal", "Main navigation")}>
         <div className="activity-rail__top">
           <BrandMark />
-          <button className={`rail-button ${assistantWorkspace === "chat" ? "rail-button--active" : ""}`} onClick={() => setAssistantWorkspace("chat")} aria-label="NovaAI" title="NovaAI"><Bot size={18} strokeWidth={1.8} /></button>
-          <button className={`rail-button ${assistantWorkspace === "code" && workspaceView === "chat" ? "rail-button--active" : ""}`} onClick={() => { setAssistantWorkspace("code"); setWorkspaceView("chat"); }} aria-label="NovaAI Code" title="NovaAI Code"><Code2 size={18} strokeWidth={1.8} /></button>
+          <button className={`rail-button ${assistantWorkspace === "chat" ? "rail-button--active" : ""}`} onClick={() => setAssistantWorkspace("chat")} aria-label="Vareliox Chat" title="Vareliox Chat"><Bot size={18} strokeWidth={1.8} /></button>
+          <button className={`rail-button ${assistantWorkspace === "code" && workspaceView === "chat" ? "rail-button--active" : ""}`} onClick={() => { setAssistantWorkspace("code"); setWorkspaceView("chat"); }} aria-label="Vareliox Code" title="Vareliox Code"><Code2 size={18} strokeWidth={1.8} /></button>
           <button className={`rail-button ${assistantWorkspace === "media" ? "rail-button--active" : ""}`} onClick={() => setAssistantWorkspace("media")} aria-label={t("Crear imágenes y vídeo", "Create images and video")} title={t("Crear imágenes y vídeo", "Create images and video")}><WandSparkles size={18} strokeWidth={1.8} /></button>
           <button className={`rail-button ${assistantWorkspace === "code" && workspaceView === "files" ? "rail-button--active" : ""}`} onClick={() => { setAssistantWorkspace("code"); setWorkspaceView("files"); }} aria-label={t("Explorador de archivos", "File explorer")} title={t("Explorador de archivos", "File explorer")}><FileCode2 size={18} strokeWidth={1.8} /></button>
         </div>
@@ -390,7 +394,7 @@ function App() {
           <MediaStudio settings={chatSettings} onConfigure={() => setProviderOpen(true)} />
         </div>
         <div className={`workspace-view ${assistantWorkspace === "code" && workspaceView === "chat" ? "" : "workspace-view--hidden"}`}>
-          {project ? <NovaCodeWorkspace activeWorkspace={assistantWorkspace === "code" && workspaceView === "chat"} project={project} projects={projects} openFiles={openFiles} settings={codeSettings} sidebarOpen={sidebarOpen} onAddProject={() => void chooseFolder()} onSelectProject={(path) => void loadProject(path)} onConfigure={() => setProviderOpen(true)} onSettingsChange={setCodeSettings} onFilesChanged={reloadChangedFiles} onNotify={notify} /> : <section className="welcome-state welcome-state--code"><div className="welcome-state__icon"><Code2 size={22} strokeWidth={1.7} /></div><h1>{t("Empieza con NovaAI Code", "Start with NovaAI Code")}</h1><p>{t("Abre un proyecto para que el agente pueda explorar y trabajar con su cÃ³digo.", "Open a project so the agent can explore and work with its code.")}</p><button className="primary-button primary-button--large" onClick={() => void chooseFolder()}><FolderPlus size={17} />{t("Abrir proyecto", "Open project")}</button></section>}
+          {project ? <NovaCodeWorkspace activeWorkspace={assistantWorkspace === "code" && workspaceView === "chat"} project={project} projects={projects} openFiles={openFiles} settings={codeSettings} sidebarOpen={sidebarOpen} onAddProject={() => void chooseFolder()} onSelectProject={(path) => void loadProject(path)} onConfigure={() => setProviderOpen(true)} onSettingsChange={setCodeSettings} onFilesChanged={reloadChangedFiles} onNotify={notify} /> : <section className="welcome-state welcome-state--code"><div className="welcome-state__icon"><Code2 size={22} strokeWidth={1.7} /></div><h1>{t("Empieza con Vareliox Code", "Start with Vareliox Code")}</h1><p>{t("Abre un proyecto para que el agente pueda explorar y trabajar con su cÃ³digo.", "Open a project so the agent can explore and work with its code.")}</p><button className="primary-button primary-button--large" onClick={() => void chooseFolder()}><FolderPlus size={17} />{t("Abrir proyecto", "Open project")}</button></section>}
         </div>
         <div className={`workspace-view ${assistantWorkspace === "code" && workspaceView === "files" ? "" : "workspace-view--hidden"}`}>
           {project ? <Suspense fallback={<div className="editor-loading">{t("Preparando editor…", "Preparing editor…")}</div>}><EditorPane files={openFiles} activePath={activePath} saving={saving} onActivate={setActivePath} onChange={updateContent} onClose={closeFile} onSave={(path) => void saveFile(path)} onSaveAll={() => void saveAll()} /></Suspense> : <section className="welcome-state"><div className="welcome-state__icon"><FolderPlus size={22} strokeWidth={1.7} /></div><h1>{t("Crea tu primer proyecto", "Create your first project")}</h1><p>{t("Elige una carpeta existente o crea una nueva desde el selector del sistema.", "Choose an existing folder or create a new one in the system picker.")}</p><button className="primary-button primary-button--large" onClick={() => void chooseFolder()}><FolderPlus size={17} strokeWidth={1.8} />{t("Nuevo proyecto", "New project")}</button><small>{t("Después podrás añadir más desde el botón Nuevo proyecto de la izquierda.", "You can add more later from the New project button on the left.")}</small></section>}

@@ -35,7 +35,7 @@ test("fija, desfija y conserva el orden manual de los fijados", () => {
 
 test("renombra, recorta a 80 caracteres y rechaza títulos vacíos", () => {
   const original = [conversation("a")];
-  assert.equal(renameConversation(original, "a", "  Proyecto Nova  ")[0].title, "Proyecto Nova");
+  assert.equal(renameConversation(original, "a", "  Proyecto Vareliox  ")[0].title, "Proyecto Vareliox");
   assert.equal(renameConversation(original, "a", " ")[0], original[0]);
   assert.equal(renameConversation(original, "a", "x".repeat(100))[0].title.length, 80);
 });
@@ -82,7 +82,7 @@ test("migra conversaciones antiguas con valores seguros", () => {
   assert.equal(migrateConversation({ id: "otro", projectPath: "C:\\otro", messages: [] }, "C:\\proyecto"), null);
 });
 
-test("recuerda el modo y usa NovaAI Code por defecto cuando hay proyecto", () => {
+test("recuerda el modo y usa Vareliox Code por defecto cuando hay proyecto", () => {
   assert.equal(createConversation("C:\\proyecto").assistantMode, "code");
   assert.equal(createConversation(null).assistantMode, "chat");
   assert.equal(migrateConversation({ ...conversation("chat"), assistantMode: "chat" }, "C:\\proyecto")?.assistantMode, "chat");
@@ -106,7 +106,7 @@ test("persistencia mantiene aislamiento entre proyectos", () => {
   assert.deepEqual(loadConversations("C:\\otro"), []);
 });
 
-test("NovaAI y NovaAI Code usan almacenes independientes", () => {
+test("Vareliox Chat y Vareliox Code usan almacenes independientes", () => {
   const store = new Map<string, string>();
   Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => store.set(key, value) } });
   const chat = conversation("chat", { projectPath: null, assistantMode: "chat" });

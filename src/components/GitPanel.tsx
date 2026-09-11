@@ -48,7 +48,7 @@ export function GitPanel({ projectPath }: Props) {
     const visibleChanges = status.changes.slice(0, 20).join("\n");
     const remaining = Math.max(0, status.changes.length - 20);
     const confirmed = window.confirm(
-      `${t("Descartar todos estos cambios", "Discard all these changes")}?\n\n${visibleChanges}${remaining ? `\n... +${remaining}` : ""}\n\n${t("Nova creará primero una copia de recuperación local.", "Nova will create a local recovery copy first.")}`,
+      `${t("Descartar todos estos cambios", "Discard all these changes")}?\n\n${visibleChanges}${remaining ? `\n... +${remaining}` : ""}\n\n${t("Vareliox creará primero una copia de recuperación local.", "Vareliox will create a local recovery copy first.")}`,
     );
     if (!confirmed) return;
     setLoading(true);

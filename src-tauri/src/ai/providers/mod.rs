@@ -346,7 +346,7 @@ fn apply_reasoning_effort(
             body["reasoning_effort"] = Value::String(value.into());
         }
         ProviderId::Kimi if model.contains("kimi-k3") => {
-            // K3 supports low/high/max. Nova's middle level maps to high and
+            // K3 supports low/high/max. Vareliox's middle level maps to high and
             // its highest level maps to Kimi's maximum documented effort.
             let kimi_effort = match effort {
                 ReasoningEffort::Low => "low",
@@ -378,7 +378,7 @@ pub fn nvidia_status_request(
             "NVIDIA devolvió una solicitud no válida",
             "No se recibió un identificador seguro para consultar el resultado pendiente.",
             "El proveedor respondió con un formato inesperado.",
-            "Vuelve a intentarlo; Nova no continuará una solicitud incompleta.",
+            "Vuelve a intentarlo; Vareliox no continuará una solicitud incompleta.",
             true,
         ));
     }

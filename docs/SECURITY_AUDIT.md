@@ -13,6 +13,6 @@ Last local review: 2026-08-13.
 
 The lockfile contains GTK3 crates marked unmaintained and a historical `glib` unsoundness warning. They are transitive Linux desktop dependencies. Review Tauri/WebKitGTK advisories before each Linux release and rebuild on the supported Ubuntu baseline.
 
-Several `unic-*` crates and `proc-macro-error` are marked unmaintained. They are transitive dependencies under Tauri's dependency graph; Nova does not call them directly. They must be reviewed when upgrading Tauri and should not be silently ignored for future cross-platform builds.
+Several `unic-*` crates and `proc-macro-error` are marked unmaintained. They are transitive dependencies under Tauri's dependency graph; Vareliox does not call them directly. They must be reviewed when upgrading Tauri and should not be silently ignored for future cross-platform builds.
 
 This report is not a professional penetration test. A public release still needs a clean-machine installer test, code signing, and periodic dependency review.

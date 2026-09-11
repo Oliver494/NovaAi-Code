@@ -9,7 +9,7 @@ const expression = /\bt\(\s*"(?:\\.|[^"])*"\s*,\s*"((?:\\.|[^"])*)"/g;
 for (const file of files(path.resolve("src"))) for (const match of fs.readFileSync(file, "utf8").matchAll(expression)) keys.add(JSON.parse(`"${match[1]}"`));
 
 async function translate(value, language) {
-  const response = await fetch("http://127.0.0.1:11434/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: "qwen2.5-coder:7b", stream: false, format: "json", options: { temperature: 0 }, messages: [{ role: "system", content: `Translate one software UI string from English to ${language}. Return valid JSON only as {"translation":"..."}. Preserve product names, NovaAI Code, API, RAM, VRAM, Git, Ollama, LM Studio, numbers, and punctuation. Use concise natural language.` }, { role: "user", content: value }] }) });
+  const response = await fetch("http://127.0.0.1:11434/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: "qwen2.5-coder:7b", stream: false, format: "json", options: { temperature: 0 }, messages: [{ role: "system", content: `Translate one software UI string from English to ${language}. Return valid JSON only as {"translation":"..."}. Preserve product names, Vareliox Code, API, RAM, VRAM, Git, Ollama, LM Studio, numbers, and punctuation. Use concise natural language.` }, { role: "user", content: value }] }) });
   if (!response.ok) throw new Error(`Ollama HTTP ${response.status}`);
   const result = await response.json();
   const parsed = JSON.parse(result.message.content);

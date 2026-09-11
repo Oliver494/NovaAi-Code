@@ -8,9 +8,9 @@ use tauri::AppHandle;
 use url::Url;
 
 const RELEASES_API: &str =
-    "https://api.github.com/repos/Oliver494/novaai-code/releases?per_page=30";
-const RELEASE_PATH_PREFIX: &str = "/oliver494/novaai-code/releases/";
-const DOWNLOAD_PATH_PREFIX: &str = "/oliver494/novaai-code/releases/download/";
+    "https://api.github.com/repos/Oliver494/Vareliox-AI/releases?per_page=30";
+const RELEASE_PATH_PREFIX: &str = "/oliver494/vareliox-ai/releases/";
+const DOWNLOAD_PATH_PREFIX: &str = "/oliver494/vareliox-ai/releases/download/";
 const MAX_RESPONSE_BYTES: usize = 512 * 1024;
 const MAX_INSTALLER_BYTES: u64 = 1024 * 1024 * 1024;
 
@@ -198,7 +198,7 @@ async fn fetch_releases(
         .connect_timeout(Duration::from_secs(4))
         .timeout(timeout)
         .redirect(Policy::none())
-        .user_agent("NovaAI-Code-Update-Checker")
+        .user_agent("Vareliox-Update-Checker")
         .build()
     {
         Ok(client) => client,
@@ -294,12 +294,7 @@ async fn fetch_releases(
             "Hay una nueva versión disponible.",
             Some(release),
         ),
-        Ok(None) => result(
-            "up_to_date",
-            installed,
-            "NovaAI Code está actualizado.",
-            None,
-        ),
+        Ok(None) => result("up_to_date", installed, "Vareliox está actualizado.", None),
         Err(()) => result(
             "invalid_response",
             installed,
@@ -318,7 +313,7 @@ pub async fn check_for_updates(app: AppHandle, channel: UpdateChannel) -> Update
 /// Downloads an installer from the official GitHub release and starts it.
 /// This command is deliberately Windows-only: Linux packages are managed by
 /// the distribution, while the Windows NSIS installer can replace the app
-/// after NovaAI Code exits.
+/// after Vareliox exits.
 #[tauri::command]
 pub async fn install_update(app: AppHandle, asset_url: String) -> Result<(), String> {
     #[cfg(not(target_os = "windows"))]
@@ -333,7 +328,7 @@ pub async fn install_update(app: AppHandle, asset_url: String) -> Result<(), Str
         if !is_official_download_url(&asset_url)
             || !asset_url.to_ascii_lowercase().ends_with(".exe")
         {
-            return Err("El instalador no pertenece a un release oficial de NovaAI Code.".into());
+            return Err("El instalador no pertenece a un release oficial de Vareliox.".into());
         }
 
         let client = Client::builder()
@@ -341,7 +336,7 @@ pub async fn install_update(app: AppHandle, asset_url: String) -> Result<(), Str
             .timeout(Duration::from_secs(180))
             // GitHub redirects release assets to its signed download host.
             .redirect(Policy::limited(5))
-            .user_agent("NovaAI-Code-Updater")
+            .user_agent("Vareliox-Updater")
             .build()
             .map_err(|_| "No se pudo preparar la descarga de la actualización.".to_string())?;
         let response = client.get(&asset_url).send().await.map_err(|_| {
@@ -358,7 +353,7 @@ pub async fn install_update(app: AppHandle, asset_url: String) -> Result<(), Str
         }
 
         let target = std::env::temp_dir().join(format!(
-            "NovaAI-Code-Update-{}-{}.exe",
+            "Vareliox-Update-{}-{}.exe",
             app.package_info().version,
             now_millis()
         ));
@@ -402,10 +397,10 @@ mod tests {
 
     fn releases_json() -> Vec<u8> {
         br#"[
-          {"tag_name":"v9.0.0","name":"Draft","body":"","html_url":"https://github.com/Oliver494/novaai-code/releases/tag/v9.0.0","draft":true,"prerelease":false,"published_at":null,"assets":[]},
-          {"tag_name":"v0.1.1","name":"Same","body":"","html_url":"https://github.com/Oliver494/novaai-code/releases/tag/v0.1.1","draft":false,"prerelease":false,"published_at":null,"assets":[]},
-          {"tag_name":"v0.2.0-beta.1","name":"Beta","body":"Preview","html_url":"https://github.com/Oliver494/novaai-code/releases/tag/v0.2.0-beta.1","draft":false,"prerelease":true,"published_at":null,"assets":[]},
-          {"tag_name":"v0.1.2","name":"Update","body":"Changes","html_url":"https://github.com/Oliver494/novaai-code/releases/tag/v0.1.2","draft":false,"prerelease":false,"published_at":null,"assets":[{"name":"NovaAI.Code_0.1.2_x64-setup.exe","browser_download_url":"https://github.com/Oliver494/novaai-code/releases/download/v0.1.2/NovaAI.Code_0.1.2_x64-setup.exe"}]}
+          {"tag_name":"v9.0.0","name":"Draft","body":"","html_url":"https://github.com/Oliver494/Vareliox-AI/releases/tag/v9.0.0","draft":true,"prerelease":false,"published_at":null,"assets":[]},
+          {"tag_name":"v0.1.1","name":"Same","body":"","html_url":"https://github.com/Oliver494/Vareliox-AI/releases/tag/v0.1.1","draft":false,"prerelease":false,"published_at":null,"assets":[]},
+          {"tag_name":"v0.2.0-beta.1","name":"Beta","body":"Preview","html_url":"https://github.com/Oliver494/Vareliox-AI/releases/tag/v0.2.0-beta.1","draft":false,"prerelease":true,"published_at":null,"assets":[]},
+          {"tag_name":"v0.1.2","name":"Update","body":"Changes","html_url":"https://github.com/Oliver494/Vareliox-AI/releases/tag/v0.1.2","draft":false,"prerelease":false,"published_at":null,"assets":[{"name":"Vareliox_0.1.2_x64-setup.exe","browser_download_url":"https://github.com/Oliver494/Vareliox-AI/releases/download/v0.1.2/Vareliox_0.1.2_x64-setup.exe"}]}
         ]"#.to_vec()
     }
 
@@ -460,11 +455,11 @@ mod tests {
     #[test]
     fn only_official_release_and_download_urls_are_allowed() {
         assert!(is_official_release_url(
-            "https://github.com/Oliver494/novaai-code/releases/tag/v0.1.2"
+            "https://github.com/Oliver494/Vareliox-AI/releases/tag/v0.1.2"
         ));
-        assert!(is_official_download_url("https://github.com/Oliver494/novaai-code/releases/download/v0.1.2/NovaAI.Code_0.1.2_x64-setup.exe"));
+        assert!(is_official_download_url("https://github.com/Oliver494/Vareliox-AI/releases/download/v0.1.2/Vareliox_0.1.2_x64-setup.exe"));
         assert!(!is_official_release_url(
-            "https://example.com/Oliver494/novaai-code/releases/tag/v0.1.2"
+            "https://example.com/Oliver494/Vareliox-AI/releases/tag/v0.1.2"
         ));
         assert!(!is_official_download_url(
             "https://github.com/another/repo/releases/download/v1/file.exe"
@@ -477,14 +472,14 @@ mod tests {
             tag_name: "v1.0.0".into(),
             name: None,
             body: None,
-            html_url: "https://github.com/Oliver494/novaai-code/releases/tag/v1.0.0".into(),
+            html_url: "https://github.com/Oliver494/Vareliox-AI/releases/tag/v1.0.0".into(),
             draft: false,
             prerelease: false,
             published_at: None,
             assets: vec![
-                GitHubAsset { name: "NovaAI.Code_1.0.0_x64-setup.exe".into(), browser_download_url: "https://github.com/Oliver494/novaai-code/releases/download/v1.0.0/NovaAI.Code_1.0.0_x64-setup.exe".into() },
-                GitHubAsset { name: "NovaAI-Code_1.0.0_amd64.deb".into(), browser_download_url: "https://github.com/Oliver494/novaai-code/releases/download/v1.0.0/NovaAI-Code_1.0.0_amd64.deb".into() },
-                GitHubAsset { name: "NovaAI-Code_1.0.0_amd64.AppImage".into(), browser_download_url: "https://github.com/Oliver494/novaai-code/releases/download/v1.0.0/NovaAI-Code_1.0.0_amd64.AppImage".into() },
+                GitHubAsset { name: "Vareliox_1.0.0_x64-setup.exe".into(), browser_download_url: "https://github.com/Oliver494/Vareliox-AI/releases/download/v1.0.0/Vareliox_1.0.0_x64-setup.exe".into() },
+                GitHubAsset { name: "Vareliox_1.0.0_amd64.deb".into(), browser_download_url: "https://github.com/Oliver494/Vareliox-AI/releases/download/v1.0.0/Vareliox_1.0.0_amd64.deb".into() },
+                GitHubAsset { name: "Vareliox_1.0.0_amd64.AppImage".into(), browser_download_url: "https://github.com/Oliver494/Vareliox-AI/releases/download/v1.0.0/Vareliox_1.0.0_amd64.AppImage".into() },
             ],
         };
         assert!(release_asset_url(&release, "windows", "x86_64")

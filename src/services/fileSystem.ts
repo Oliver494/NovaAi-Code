@@ -11,12 +11,12 @@ type FileContent = {
 };
 
 export async function chooseProjectFolder() {
-  const selected = await open({ directory: true, multiple: false, title: "Abrir carpeta en NovaAI Code" });
+  const selected = await open({ directory: true, multiple: false, title: "Abrir carpeta en Vareliox Code" });
   return typeof selected === "string" ? selected : null;
 }
 
 export async function chooseExternalFolder() {
-  const selected = await open({ directory: true, multiple: false, title: "Autorizar carpeta adicional para NovaAI Code" });
+  const selected = await open({ directory: true, multiple: false, title: "Autorizar carpeta adicional para Vareliox Code" });
   return typeof selected === "string" ? selected : null;
 }
 

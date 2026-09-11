@@ -1,7 +1,7 @@
 # Provider logos
 
 These unmodified provider assets are bundled only to identify the corresponding
-AI integration inside NovaAI Code. Each logo remains the property of its owner.
+AI integration inside Vareliox Code. Each logo remains the property of its owner.
 Their presence does not imply sponsorship or endorsement.
 
 Official sources:

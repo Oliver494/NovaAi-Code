@@ -1,6 +1,6 @@
 # Code of conduct
 
-NovaAI Code aims to be a welcoming, technically rigorous community.
+Vareliox aims to be a welcoming, technically rigorous community.
 
 Be respectful, discuss ideas rather than people, accept constructive review, avoid harassment or discriminatory language, and do not publish another person's private information or credentials. Security concerns must be reported privately.
 

@@ -24,7 +24,7 @@ Paid API smoke tests must use a small prompt and a dedicated low-limit key. Neve
 
 - Run simultaneous activity across two chats and verify state isolation.
 - Switch project, view, model, and chat during streaming without accidental cancellation.
-- Force-close Nova during a response and confirm the chat offers a retry after restart.
+- Force-close Vareliox during a response and confirm the chat offers a retry after restart.
 - Verify automatic context lists `file:start-end` references and final applied changes retain a diff.
 - Paste supported and unsupported images.
 - Review, reject, and apply create/write/rename/delete actions.

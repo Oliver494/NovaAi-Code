@@ -1,11 +1,11 @@
 [package]
-name = "novaai-code"
-version = "0.1.6"
-description = "A local-first AI coding assistant"
-authors = ["NovaAI Code contributors"]
+name = "vareliox"
+version = "0.1.7"
+description = "A local-first AI workspace for chat, code, and media"
+authors = ["Vareliox contributors"]
 edition = "2021"
 license = "Apache-2.0"
-repository = "https://github.com/Oliver494/novaai-code"
+repository = "https://github.com/Oliver494/Vareliox-AI"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

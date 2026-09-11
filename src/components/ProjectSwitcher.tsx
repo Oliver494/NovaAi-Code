@@ -26,7 +26,7 @@ export function ProjectSwitcher({ active, projects, onAdd, onRemove, onSelect }:
   }, [open]);
 
   return <div className="project-switcher" ref={root}>
-    <button type="button" className="project-switcher__trigger" onClick={() => setOpen((value) => !value)} aria-expanded={open} title={active?.path ?? t("Proyectos", "Projects")}><FolderOpen size={16} /><span><strong>{active?.name ?? "NovaAI Code"}</strong>{active && <small>{active.path}</small>}</span><ChevronDown size={14} /></button>
+    <button type="button" className="project-switcher__trigger" onClick={() => setOpen((value) => !value)} aria-expanded={open} title={active?.path ?? t("Proyectos", "Projects")}><FolderOpen size={16} /><span><strong>{active?.name ?? "Vareliox Code"}</strong>{active && <small>{active.path}</small>}</span><ChevronDown size={14} /></button>
     {open && <div className="project-switcher__menu">
       <header><strong>{t("Proyectos", "Projects")}</strong><span>{projects.length}</span></header>
       <div className="project-switcher__list">{projects.map((item) => <div className={active?.path.toLocaleLowerCase() === item.path.toLocaleLowerCase() ? "is-active" : ""} key={item.path}><button type="button" onClick={() => { setOpen(false); onSelect(item.path); }}><FolderOpen size={16} /><span><strong>{item.name}</strong><small title={item.path}>{item.path}</small></span>{active?.path.toLocaleLowerCase() === item.path.toLocaleLowerCase() && <Check size={15} />}</button><button type="button" className="project-switcher__remove" onClick={() => onRemove(item.path)} title={t("Quitar de la lista", "Remove from list")} aria-label={`${t("Quitar", "Remove")} ${item.name}`}><X size={14} /></button></div>)}</div>
